@@ -1,0 +1,168 @@
+{
+  "id": "my-plugin",
+  "version": "1.0.0",
+  "apiVersion": "2.0",
+  "displayName": "My Plugin",
+  "description": "Plugin description",
+  "entry": "./dist/index.js",
+  "initView": "my-plugin.dashboard.open",
+  "database": {
+    "migrations": "./drizzle"
+  },
+  "assets": {
+    "styles": [
+      "./dist/assets/tailwind.css",
+      "./dist/assets/fontawesome/css/all.min.css"
+    ],
+    "preload": [
+      "./dist/assets/fontawesome/webfonts/fa-solid-900.woff2"
+    ]
+  },
+  "externals": {
+    "react": "React",
+    "react-dom": "ReactDOM"
+  },
+  "isolation": "prefix",
+  "contributes": {
+    "menus": [
+      {
+        "path": "Dashboard",
+        "order": 1,
+        "viewId": "my-plugin.dashboard.open",
+        "icon": "assets/icons/home.svg",
+        "color": "#38bdf8"
+      },
+      {
+        "path": "Settings/General",
+        "order": 2,
+        "viewId": "my-plugin.settings.general",
+        "icon": "assets/icons/settings.svg",
+        "color": "#10b981"
+      }
+    ],
+    "views": [
+      {
+        "id": "my-plugin.dashboard.open",
+        "title": "Dashboard",
+        "component": "./dist/views/dashboard/index.js",
+        "export": "DashboardView"
+      },
+      {
+        "id": "my-plugin.settings.general",
+        "title": "General Settings",
+        "component": "./dist/views/settings/index.js",
+        "export": "SettingsView"
+      }
+    ],
+    "repositories": [
+      {
+        "module": "./dist/repositories/items.repository.js",
+        "export": "ItemsRepository",
+        "prefix": "my-plugin.items"
+      }
+    ],
+    "utilityActions": [
+      {
+        "id": "my-plugin.quick-tasks",
+        "icon": "assets/icons/quick-tasks.svg",
+        "label": "Tareas rápidas",
+        "order": 5,
+        "color": "#8B5CF6",
+        "panelType": "popover",
+        "component": "./dist/panels/quick-tasks/index.js",
+        "export": "QuickTasksPanel"
+      }
+    ],
+    "viewOverrides": [
+      {
+        "targetViewId": "other-plugin.dashboard.open",
+        "component": "./dist/views/dashboard-override/index.js",
+        "export": "DashboardOverrideView",
+        "priority": 10,
+        "title": "Dashboard Personalizado"
+      }
+    ],
+    "viewContributions": [
+      {
+        "targetViewId": "other-plugin.detail.open",
+        "slot": "sections",
+        "component": "./dist/contributions/extra-info/index.js",
+        "export": "ExtraInfoSection",
+        "order": 10,
+        "label": "Información adicional"
+      }
+    ],
+    "settings": {
+      "groups": [
+        {
+          "id": "my-plugin",
+          "label": "My Plugin",
+          "order": 50
+        }
+      ],
+      "pages": [
+        {
+          "id": "my-plugin.general",
+          "group": "my-plugin",
+          "label": "General",
+          "icon": "assets/icons/settings.svg",
+          "order": 10
+        }
+      ],
+      "sections": [
+        {
+          "id": "my-plugin.general.notifications",
+          "page": "my-plugin.general",
+          "label": "Notifications",
+          "order": 10,
+          "items": [
+            {
+              "key": "my-plugin.notifications.enabled",
+              "type": "boolean",
+              "label": "Enable Notifications",
+              "description": "Show desktop notifications for important events.",
+              "default": true,
+              "tags": [
+                "notifications",
+                "alerts",
+                "desktop"
+              ]
+            },
+            {
+              "key": "my-plugin.notifications.sound",
+              "type": "enum",
+              "label": "Notification Sound",
+              "description": "Choose the sound played when a notification arrives.",
+              "default": "default",
+              "options": [
+                "default",
+                "chime",
+                "bell",
+                "none"
+              ],
+              "tags": [
+                "notifications",
+                "sound",
+                "audio"
+              ]
+            },
+            {
+              "key": "my-plugin.notifications.maxItems",
+              "type": "number",
+              "label": "Max Notification Items",
+              "description": "Maximum number of notifications to keep in history.",
+              "default": 100,
+              "min": 10,
+              "max": 1000,
+              "tags": [
+                "notifications",
+                "history",
+                "limit"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

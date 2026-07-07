@@ -1,0 +1,15 @@
+# Normaliza todo el texto a LF en el repo y en el working tree, ignorando
+# core.autocrlf (clave en Windows). Mantiene prettier (endOfLine: lf) y los
+# hooks de calidad consistentes en todos los sistemas operativos.
+* text=auto eol=lf
+
+# Binarios: nunca tocar EOL.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary

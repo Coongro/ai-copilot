@@ -1,0 +1,101 @@
+/**
+ * Contrato del copiloto (lado panel/frontend) — modelo ARIA-first.
+ * Espeja los tipos del backend (src/types.ts) más los del chat UI.
+ */
+
+export interface MenuItem {
+  label: string;
+  viewId: string | null;
+  path: string;
+}
+
+export type ControlKind =
+  | 'button'
+  | 'text'
+  | 'number'
+  | 'toggle'
+  | 'choice'
+  | 'select'
+  | 'date'
+  | 'expandable'
+  | 'unknown';
+
+export interface ControlOption {
+  label: string;
+  selected?: boolean;
+}
+
+export interface ScreenControl {
+  ref: string;
+  kind: ControlKind;
+  name: string;
+  value?: string;
+  state?: string;
+  options?: ControlOption[];
+  placeholder?: string;
+  meta?: Record<string, string>;
+}
+
+export interface ScreenTableRow {
+  ref: string;
+  cells: string[];
+}
+
+export interface ScreenTable {
+  columns: string[];
+  rows: ScreenTableRow[];
+  truncated?: boolean;
+}
+
+export type ScreenLayer = 'main' | 'dialog' | 'popover';
+
+export interface ObservedScreen {
+  activeViewId: string | null;
+  viewTitle: string | null;
+  layer: ScreenLayer;
+  menus: MenuItem[];
+  controls: ScreenControl[];
+  table: ScreenTable | null;
+}
+
+export type AgentAction =
+  | { type: 'navigate'; viewId: string }
+  | { type: 'click'; ref: string }
+  | { type: 'type'; ref: string; text: string }
+  | { type: 'select'; ref: string; option: string }
+  | { type: 'toggle'; ref: string; on?: boolean }
+  | { type: 'expand'; ref: string }
+  | { type: 'setNumber'; ref: string; value: number }
+  | { type: 'pickDate'; ref: string; date: string }
+  | { type: 'wait'; ms?: number }
+  | { type: 'finish'; summary: string };
+
+export interface TurnRecord {
+  thought: string;
+  action: AgentAction;
+  error?: string;
+}
+
+/** Resumen de una tarea previa de la MISMA sesión de chat (memoria conversacional). */
+export interface ConversationEntry {
+  goal: string;
+  outcome: string;
+}
+
+export interface TurnResponse {
+  thought: string;
+  action: AgentAction;
+}
+
+export type IntelligenceLevel = 'fast' | 'standard' | 'advanced';
+
+export type CopilotStatus = 'idle' | 'thinking' | 'acting' | 'done' | 'error';
+
+export type MessageKind = 'text' | 'thought' | 'action' | 'done' | 'error';
+
+export interface CopilotMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  kind: MessageKind;
+  text: string;
+}

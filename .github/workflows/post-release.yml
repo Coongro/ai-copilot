@@ -1,0 +1,54 @@
+name: Post-Release Sync
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  sync:
+    name: Sync staging & develop
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Sync staging with main
+        run: |
+          git checkout staging
+          git merge main --no-edit || {
+            git merge --abort
+            gh pr create \
+              --base staging \
+              --head main \
+              --title "sync: merge main into staging (conflicts)" \
+              --body "Merge automático de main a staging falló por conflictos. Resolver manualmente."
+            echo "::warning::Conflictos al sincronizar staging. PR creado."
+          }
+          git push origin staging
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync develop with main
+        run: |
+          git checkout develop
+          git merge main --no-edit || {
+            git merge --abort
+            gh pr create \
+              --base develop \
+              --head main \
+              --title "sync: merge main into develop (conflicts)" \
+              --body "Merge automático de main a develop falló por conflictos. Resolver manualmente."
+            echo "::warning::Conflictos al sincronizar develop. PR creado."
+          }
+          git push origin develop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

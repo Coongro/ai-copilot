@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    branches: [staging]
+
+jobs:
+  release:
+    name: Version or Publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Configure @coongro registry
+        run: |
+          echo "@coongro:registry=${{ secrets.STAGING_VERDACCIO_URL }}" > .npmrc
+          echo "//${{ secrets.STAGING_VERDACCIO_URL_HOST }}/:_authToken=${{ secrets.STAGING_VERDACCIO_TOKEN }}" >> .npmrc
+
+      - name: Install dependencies
+        run: |
+          rm -f package-lock.json
+          npm install
+      - run: npm run build
+
+      - name: Create Release PR or Publish
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          version: sh scripts/changeset-version.sh
+          publish: npm publish --ignore-scripts --registry ${{ secrets.STAGING_VERDACCIO_URL }}
+          title: "Version Packages"
+          commit: "chore: version packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        if: steps.changesets.outputs.published == 'true'
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          NAME=$(node -p "require('./package.json').name")
+          echo "### Published $NAME@$VERSION to staging" >> $GITHUB_STEP_SUMMARY
+
+      - name: Sync develop with staging
+        if: steps.changesets.outputs.hasChangesets == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin develop
+          git checkout develop
+          if git merge origin/staging --no-edit; then
+            git push origin develop
+            echo "### ✅ develop synced with staging" >> $GITHUB_STEP_SUMMARY
+          else
+            git merge --abort
+            echo "### ⚠️ Conflicts syncing develop ← staging. Manual sync required." >> $GITHUB_STEP_SUMMARY
+          fi

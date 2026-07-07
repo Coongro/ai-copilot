@@ -1,0 +1,51 @@
+{
+  "id": "ai-copilot",
+  "version": "0.1.0",
+  "apiVersion": "2.0",
+  "displayName": "Asistente IA",
+  "description": "Copiloto agéntico: ve la interfaz de Coongro como texto (árbol ARIA) y decide la próxima acción (navegar, click, escribir, seleccionar) para cumplir el objetivo del usuario en cualquier módulo instalado. Usa el gateway openrouter como motor LLM y consume Unidades de trabajo por tarea.",
+  "runtime": "eager",
+  "entry": "./dist/entry.js",
+  "contributes": {
+    "menus": [],
+    "views": [],
+    "repositories": [],
+    "utilityActions": [
+      {
+        "id": "ai-copilot.chat",
+        "icon": "assets/icons/sparkles.svg",
+        "label": "Asistente IA",
+        "order": 40,
+        "panelType": "drawer",
+        "component": "./dist/panel/index.js",
+        "export": "CopilotDrawer"
+      }
+    ],
+    "httpEndpoints": [
+      {
+        "id": "turn",
+        "path": "/turn",
+        "method": "POST",
+        "handler": "./dist/endpoints/turn.js",
+        "export": "turn",
+        "auth": "jwt"
+      },
+      {
+        "id": "config-prompt-get",
+        "path": "/config/prompt",
+        "method": "GET",
+        "handler": "./dist/endpoints/config-prompt.js",
+        "export": "getPrompt",
+        "auth": "none"
+      },
+      {
+        "id": "config-prompt-set",
+        "path": "/config/prompt",
+        "method": "PUT",
+        "handler": "./dist/endpoints/config-prompt.js",
+        "export": "setPrompt",
+        "auth": "none"
+      }
+    ]
+  }
+}

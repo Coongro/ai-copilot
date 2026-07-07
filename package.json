@@ -1,0 +1,64 @@
+{
+  "name": "@coongro/ai-copilot",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Copiloto agéntico: ve la interfaz de Coongro como texto y decide la próxima acción (navegar, click, escribir, seleccionar). Usa el plugin openrouter como motor LLM. Demo cableada para el flujo de Consultas.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "default": "./dist/server.js"
+    }
+  },
+  "files": [
+    "dist",
+    "assets",
+    "drizzle",
+    "coongro.manifest.json"
+  ],
+  "scripts": {
+    "prepare": "husky",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx}\"",
+    "quality": "npm run typecheck && npm run format:check && npm run lint",
+    "quality:fix": "npm run format && npm run lint:fix",
+    "sync-version": "node scripts/sync-version.cjs",
+    "version": "npm run sync-version && git add coongro.manifest.json",
+    "prepublishOnly": "npm run quality && npm run build",
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@coongro/openrouter": ">=1.0.0"
+  },
+  "peerDependencies": {
+    "@coongro/plugin-sdk": ">=0.1.0"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.27.0",
+    "@coongro/plugin-sdk": ">=0.14.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^8.57.1",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-sonarjs": "^0.24.0",
+    "husky": "^9.0.0",
+    "prettier": "^3.2.5",
+    "typescript": "^5.3.0",
+    "drizzle-orm": "^0.38.3",
+    "@types/node": "^20.11.5"
+  }
+}
