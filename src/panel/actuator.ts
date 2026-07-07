@@ -17,7 +17,7 @@
 
 import { computeAccessibleName } from './accname.js';
 import { navigateTo } from './bridge.js';
-import { AI_REF_ATTR, AI_KIND_ATTR, isDisabled } from './screen-reader.js';
+import { AI_REF_ATTR, AI_KIND_ATTR, AI_RADIOS_ATTR, isDisabled } from './screen-reader.js';
 import type { AgentAction } from './types.js';
 
 const TYPE_DELAY_MS = 38;
@@ -235,8 +235,14 @@ async function doType(ref: string, value: string): Promise<void> {
 }
 
 async function selectInChoice(el: HTMLElement, option: string): Promise<void> {
+  // El host de radios nativos puede contener radios de otros grupos: si
+  // observe() dejó el name del grupo, restringir las opciones a ese grupo.
+  const radioName = el.getAttribute(AI_RADIOS_ATTR);
+  const nativeSel = radioName
+    ? `input[type="radio"][name="${CSS.escape(radioName)}"]`
+    : 'input[type="radio"]';
   const items = Array.from(
-    el.querySelectorAll<HTMLElement>('[role="radio"],[role="tab"],input[type="radio"]')
+    el.querySelectorAll<HTMLElement>(`[role="radio"],[role="tab"],${nativeSel}`)
   ).filter((i) => i.getBoundingClientRect().width > 0);
   const { match, labels } = pickByLabel(items, option);
   if (!match) {
@@ -320,6 +326,19 @@ async function doToggle(ref: string, on?: boolean): Promise<void> {
     el.click();
     await sleep(450);
   }
+  // El click puede no producir el cambio (handler ajeno, elemento sin estado):
+  // si el modelo pidió un estado concreto, verificarlo en vez de asumir éxito.
+  if (on !== undefined && isCheckedNow(el) !== on) {
+    throw new Error(
+      `No pude ${on ? 'activar' : 'desactivar'} «${computeAccessibleName(el)}» (el estado no cambió).`
+    );
+  }
+}
+
+/** Estado expandido actual; null si el elemento no expone aria-expanded. */
+function isExpandedNow(el: HTMLElement): boolean | null {
+  const attr = el.getAttribute('aria-expanded');
+  return attr === null ? null : attr === 'true';
 }
 
 async function doExpand(ref: string, open?: boolean): Promise<void> {
@@ -327,11 +346,17 @@ async function doExpand(ref: string, open?: boolean): Promise<void> {
   if (!el) throw new Error(`No encontré la sección ${ref}.`);
   assertEnabled(el);
   await focusAndReveal(el);
+  const isOpen = isExpandedNow(el);
+  if (isOpen === null) {
+    throw new Error('El control no expone estado expandido (aria-expanded).');
+  }
   const want = open ?? true;
-  const isOpen = el.getAttribute('aria-expanded') === 'true';
   if (isOpen !== want) {
     el.click();
     await sleep(650);
+    if (isExpandedNow(el) !== want) {
+      throw new Error(`No pude ${want ? 'desplegar' : 'plegar'} la sección (el estado no cambió).`);
+    }
   }
 }
 
@@ -342,13 +367,13 @@ function valueNow(el: HTMLElement): number {
 /** Slider ARIA: se maneja por teclado (flechas sobre el elemento con el rol). */
 async function slideTo(el: HTMLElement, value: number): Promise<void> {
   el.focus();
-  for (let i = 0; i < 200; i++) {
+  for (let i = 0; i < 120; i++) {
     const current = valueNow(el);
     if (!Number.isFinite(current) || current === value) break;
     const key = current < value ? 'ArrowRight' : 'ArrowLeft';
     el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
     // eslint-disable-next-line no-await-in-loop
-    await sleep(24);
+    await sleep(60); // margen para re-render antes del stuck-check
     if (valueNow(el) === current) break; // no responde al teclado — cortar
   }
   const final = valueNow(el);
@@ -380,8 +405,10 @@ async function stepTo(el: HTMLElement, value: number): Promise<void> {
     await sleep(180);
   }
   const final = valueNow(el);
-  if (Number.isFinite(final) && final !== value) {
-    throw new Error(`No pude llegar al valor ${value} (quedó en ${final}).`);
+  if (final !== value) {
+    throw new Error(
+      `No pude llegar al valor ${value} (quedó en ${Number.isFinite(final) ? final : 'desconocido'}).`
+    );
   }
 }
 
@@ -402,6 +429,14 @@ async function doSetNumber(ref: string, value: number): Promise<void> {
   await stepTo(el, value);
 }
 
+/** Adapta "YYYY-MM-DD" / "YYYY-MM-DDTHH:MM" al formato exacto que exige el input nativo. */
+function coerceDateValue(type: string, date: string): string {
+  if (type === 'date') return date.slice(0, 10);
+  if (type === 'datetime-local') return date.includes('T') ? date : `${date}T00:00`;
+  if (type === 'time') return date.includes('T') ? date.slice(11, 16) : date;
+  return date;
+}
+
 async function doPickDate(ref: string, date: string): Promise<void> {
   const el = getEl(ref);
   if (!el) throw new Error(`No encontré el campo de fecha ${ref}.`);
@@ -411,8 +446,13 @@ async function doPickDate(ref: string, date: string): Promise<void> {
     input &&
     (input.type === 'date' || input.type === 'time' || input.type === 'datetime-local')
   ) {
+    const value = coerceDateValue(input.type, date);
     await focusAndReveal(input);
-    await typeInto(input, date, false);
+    await typeInto(input, value, false);
+    // Los inputs nativos rechazan EN SILENCIO un formato inválido (value queda vacío).
+    if (!input.value) {
+      throw new Error(`El campo no aceptó "${value}" (es un input de tipo ${input.type}).`);
+    }
     return;
   }
   // Trigger de calendario en popover.
@@ -459,7 +499,10 @@ export async function act(action: AgentAction): Promise<void> {
     case 'finish':
       clearHighlight();
       return;
-    default:
-      return;
+    default: {
+      // Guard de exhaustividad: un verbo nuevo en types/parse sin driver acá debe fallar ruidoso.
+      const unknown: never = action;
+      throw new Error(`Acción sin driver: ${JSON.stringify(unknown)}`);
+    }
   }
 }

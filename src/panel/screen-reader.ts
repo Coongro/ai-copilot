@@ -31,6 +31,8 @@ import type {
 
 export const AI_REF_ATTR = 'data-cg-ai-ref';
 export const AI_KIND_ATTR = 'data-cg-ai-kind';
+/** name del grupo de radios nativos que un choice hospeda (para que el actuador no cruce grupos). */
+export const AI_RADIOS_ATTR = 'data-cg-ai-radios';
 
 const SEL = {
   combobox: '[role="combobox"]',
@@ -99,13 +101,15 @@ export function isDisabled(el: HTMLElement): boolean {
 }
 
 /**
- * Capa a observar: overlay abierto (dialog/alertdialog/<dialog> nativo) tiene
- * prioridad sobre main; popover abierto, sobre ambos. Soporta overlays sin
- * data-state (no-Radix): solo se descarta data-state con valor distinto de
- * "open" (animación de salida de Radix). Con varios overlays apilados gana el
- * último del DOM (el de arriba). Todo lo que viva dentro del drawer del
- * copiloto (data-cg-copilot-panel) se excluye para que el agente no se lea a
- * sí mismo.
+ * Capa a observar: dialog abierto (dialog/alertdialog/<dialog> nativo) tiene
+ * prioridad máxima; popover/menu abierto solo se usa si NO hay dialog (los
+ * popovers Radix se portalan a body, así que un select abierto dentro de un
+ * modal lo resuelve el actuador a nivel documento, no este scope). Soporta
+ * overlays sin data-state (no-Radix): solo se descarta data-state con valor
+ * distinto de "open" (animación de salida de Radix). Con varios overlays
+ * apilados gana el último del DOM (el de arriba). Todo lo que viva dentro del
+ * drawer del copiloto (data-cg-copilot-panel) se excluye para que el agente no
+ * se lea a sí mismo.
  */
 function getScope(): { el: HTMLElement; layer: ScreenLayer } {
   const notOurs = (el: HTMLElement): boolean => !el.closest('[data-cg-copilot-panel]');
@@ -204,8 +208,16 @@ function readNativeRadioGroups(ctx: Ctx): void {
     while (host.parentElement && !items.every((i) => host.contains(i))) {
       host = host.parentElement;
     }
+    // Si el ancestro común ya fue reclamado (otro grupo comparte contenedor),
+    // subir hasta un host libre en vez de descartar el grupo en silencio.
+    while (ctx.claimed.has(host) && host !== ctx.scope && host.parentElement) {
+      host = host.parentElement;
+    }
     if (ctx.claimed.has(host)) continue;
     ctx.claimed.add(host);
+    // El host puede contener radios de OTROS grupos: dejar el name para que el
+    // actuador restrinja las opciones al grupo correcto.
+    if (items[0].name) host.setAttribute(AI_RADIOS_ATTR, items[0].name);
 
     const options: ControlOption[] = [];
     let value = '';
@@ -389,6 +401,7 @@ function clearRefs(): void {
   document.querySelectorAll(`[${AI_REF_ATTR}]`).forEach((el) => {
     el.removeAttribute(AI_REF_ATTR);
     el.removeAttribute(AI_KIND_ATTR);
+    el.removeAttribute(AI_RADIOS_ATTR);
   });
 }
 

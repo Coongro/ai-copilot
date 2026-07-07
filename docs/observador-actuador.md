@@ -97,3 +97,10 @@ Un input `readOnly` se considera trigger de fecha **solo** si tiene `data-cg-con
 - **Steppers verificados**: `stepTo` falla si no hay botones +/- o si no alcanzó el valor.
 - **Combobox con placeholder**: `data-placeholder` (Radix) ⇒ value vacío (antes reportaba "Seleccionar..." como valor elegido).
 - **Expand bidireccional**: `{ type: "expand", open: false }` pliega; `doExpand` idempotente.
+
+Endurecimiento post-review (silent-failure hunt, misma rama):
+
+- **Verificar tras actuar** en todos los drivers con estado observable: `doToggle` re-lee el checked cuando el modelo pidió un estado concreto; `doExpand` exige `aria-expanded` y verifica el cambio; `stepTo` falla también cuando el control no expone `aria-valuenow` (antes retornaba OK sin hacer nada).
+- **`doPickDate` nativo**: adapta el formato al `type` del input (`coerceDateValue`) y verifica que el value haya quedado — los inputs nativos rechazan formatos inválidos EN SILENCIO dejando `value=''`.
+- **Radios nativos**: si el ancestro común ya está reclamado, el grupo sube hasta un host libre (no se descarta); el host lleva `data-cg-ai-radios="<name>"` y el actuador restringe las opciones a ese grupo (evita clickear radios de otro grupo bajo el mismo contenedor).
+- **`act()` exhaustivo**: verbo sin driver tira error (guard `never`) en vez de "ejecutarse" sin hacer nada.
