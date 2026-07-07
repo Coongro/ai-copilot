@@ -185,6 +185,37 @@ function readChoices(ctx: Ctx, groupSel: string, itemSel: string, selectedAttr: 
 }
 
 /**
+ * HTML roto: un radio sin name no forma grupo. Se emite como toggle individual
+ * en vez de fusionarlo en un grupo espurio.
+ */
+function emitLoneRadio(ctx: Ctx, radio: HTMLInputElement): void {
+  ctx.claimed.add(radio);
+  const state = toggleState(radio);
+  emit(ctx, radio, {
+    kind: 'toggle',
+    name: computeAccessibleName(radio) || clean(radio.value),
+    value: state,
+    state: isDisabled(radio) ? 'disabled' : state,
+  });
+}
+
+/**
+ * Ancestro común mínimo del grupo. Si ya fue reclamado (otro grupo comparte
+ * contenedor), sube hasta un host libre en vez de descartar el grupo en
+ * silencio; null solo si no queda host disponible.
+ */
+function findGroupHost(ctx: Ctx, items: HTMLInputElement[]): HTMLElement | null {
+  let host: HTMLElement = items[0];
+  while (host.parentElement && !items.every((i) => host.contains(i))) {
+    host = host.parentElement;
+  }
+  while (ctx.claimed.has(host) && host !== ctx.scope && host.parentElement) {
+    host = host.parentElement;
+  }
+  return ctx.claimed.has(host) ? null : host;
+}
+
+/**
  * Radios NATIVOS (input[type=radio] sin role explícito): se agrupan por `name`
  * y se emite UN control choice sobre el ancestro común mínimo del grupo, para
  * que el actuador encuentre las opciones adentro.
@@ -196,28 +227,23 @@ function readNativeRadioGroups(ctx: Ctx): void {
 
   const groups = new Map<string, HTMLInputElement[]>();
   for (const radio of radios) {
-    const key = radio.name || '__sin_name__';
-    const list = groups.get(key) ?? [];
+    if (!radio.name) {
+      emitLoneRadio(ctx, radio);
+      continue;
+    }
+    const list = groups.get(radio.name) ?? [];
     list.push(radio);
-    groups.set(key, list);
+    groups.set(radio.name, list);
   }
 
   for (const items of groups.values()) {
     items.forEach((i) => ctx.claimed.add(i));
-    let host: HTMLElement = items[0];
-    while (host.parentElement && !items.every((i) => host.contains(i))) {
-      host = host.parentElement;
-    }
-    // Si el ancestro común ya fue reclamado (otro grupo comparte contenedor),
-    // subir hasta un host libre en vez de descartar el grupo en silencio.
-    while (ctx.claimed.has(host) && host !== ctx.scope && host.parentElement) {
-      host = host.parentElement;
-    }
-    if (ctx.claimed.has(host)) continue;
+    const host = findGroupHost(ctx, items);
+    if (!host) continue;
     ctx.claimed.add(host);
     // El host puede contener radios de OTROS grupos: dejar el name para que el
     // actuador restrinja las opciones al grupo correcto.
-    if (items[0].name) host.setAttribute(AI_RADIOS_ATTR, items[0].name);
+    host.setAttribute(AI_RADIOS_ATTR, items[0].name);
 
     const options: ControlOption[] = [];
     let value = '';

@@ -364,20 +364,49 @@ function valueNow(el: HTMLElement): number {
   return Number(el.getAttribute('aria-valuenow') ?? 'NaN');
 }
 
+function pressArrow(el: HTMLElement, key: 'ArrowRight' | 'ArrowLeft'): void {
+  el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+}
+
+/** Nos pasamos del objetivo: retroceder un paso si el valor previo era el más cercano. */
+async function settleOvershoot(
+  el: HTMLElement,
+  key: 'ArrowRight' | 'ArrowLeft',
+  current: number,
+  after: number,
+  value: number
+): Promise<void> {
+  if (Math.abs(current - value) < Math.abs(after - value)) {
+    pressArrow(el, key === 'ArrowRight' ? 'ArrowLeft' : 'ArrowRight');
+    await sleep(60);
+  }
+}
+
 /** Slider ARIA: se maneja por teclado (flechas sobre el elemento con el rol). */
 async function slideTo(el: HTMLElement, value: number): Promise<void> {
   el.focus();
+  let step = 0;
   for (let i = 0; i < 120; i++) {
     const current = valueNow(el);
     if (!Number.isFinite(current) || current === value) break;
     const key = current < value ? 'ArrowRight' : 'ArrowLeft';
-    el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    pressArrow(el, key);
     // eslint-disable-next-line no-await-in-loop
     await sleep(60); // margen para re-render antes del stuck-check
-    if (valueNow(el) === current) break; // no responde al teclado — cortar
+    const after = valueNow(el);
+    if (after === current) break; // no responde al teclado — cortar
+    step = Math.abs(after - current);
+    // Overshoot: el objetivo no está alineado al step del slider. Quedarse con
+    // el valor más cercano en vez de oscilar hasta agotar el bucle.
+    if (after !== value && current < value !== after < value) {
+      // eslint-disable-next-line no-await-in-loop
+      await settleOvershoot(el, key, current, after, value);
+      break;
+    }
   }
   const final = valueNow(el);
-  if (final !== value) {
+  // Tolerancia de un step para objetivos no alineados (step=5, objetivo 7 → queda 5).
+  if (!Number.isFinite(final) || Math.abs(final - value) > step) {
     throw new Error(
       `No pude fijar el valor ${value} (quedó en ${Number.isFinite(final) ? final : 'desconocido'}).`
     );
