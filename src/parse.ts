@@ -41,7 +41,7 @@ const SPECS: Record<string, Spec> = {
   expand: (a) => {
     const ref = str(a.ref);
     if (!ref) throw new Error('expand requiere ref');
-    return { type: 'expand', ref };
+    return { type: 'expand', ref, open: typeof a.open === 'boolean' ? a.open : undefined };
   },
   setNumber: (a) => {
     const ref = str(a.ref);

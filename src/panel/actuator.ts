@@ -2,14 +2,22 @@
 /**
  * Actuador: ejecuta una `AgentAction` sobre la UI viva con animación. Cada
  * driver elige su estrategia según el `kind` del control (data-cg-ai-kind que
- * dejó observe()): toggle idempotente por aria-checked, choice por nombre de
- * opción, expand por aria-expanded, setNumber para stepper/numérico, pickDate
- * para el calendario, select para combobox, click genérico para el resto.
+ * dejó observe()): toggle idempotente por estado checked, choice por nombre de
+ * opción, expand por aria-expanded (abre y también pliega con open:false),
+ * setNumber para stepper/numérico/slider, pickDate para el calendario, select
+ * para combobox, click genérico para el resto.
+ *
+ * Principio: NUNCA fallar en silencio ni "adivinar". Si la opción pedida no
+ * existe, si el control está deshabilitado o si el valor no se pudo fijar, se
+ * tira un Error descriptivo — el loop del agente lo guarda en el historial y
+ * el modelo se recupera con esa información.
+ *
+ * Contrato completo y guía de extensión: docs/observador-actuador.md
  */
 
 import { computeAccessibleName } from './accname.js';
 import { navigateTo } from './bridge.js';
-import { AI_REF_ATTR, AI_KIND_ATTR } from './screen-reader.js';
+import { AI_REF_ATTR, AI_KIND_ATTR, AI_RADIOS_ATTR, isDisabled } from './screen-reader.js';
 import type { AgentAction } from './types.js';
 
 const TYPE_DELAY_MS = 38;
@@ -104,6 +112,14 @@ function kindOf(el: HTMLElement): string {
   return el.getAttribute(AI_KIND_ATTR) ?? '';
 }
 
+function assertEnabled(el: HTMLElement): void {
+  if (isDisabled(el)) {
+    throw new Error(
+      `«${computeAccessibleName(el, true) || 'El control'}» está deshabilitado — probablemente falte completar otro campo antes.`
+    );
+  }
+}
+
 async function focusAndReveal(el: HTMLElement): Promise<void> {
   el.scrollIntoView({ block: 'center', behavior: 'smooth' });
   await sleep(280);
@@ -154,11 +170,37 @@ function visibleOptions(): HTMLElement[] {
   });
 }
 
-function pickByName<T extends HTMLElement>(items: T[], query: string): T | null {
-  if (items.length === 0) return null;
-  if (!query) return items[0];
+/** Etiqueta legible de una opción (radios nativos no tienen textContent). */
+function optionLabel(el: HTMLElement): string {
+  const name = computeAccessibleName(el, true);
+  if (name) return name;
+  if (el instanceof HTMLInputElement) return el.value;
+  return '';
+}
+
+/**
+ * Busca la opción por etiqueta. SIN fallback silencioso: si el modelo pidió
+ * una opción y no está, devolvemos null y el caller tira un error que LISTA
+ * las opciones disponibles (así el modelo se recupera eligiendo una real).
+ * Query vacío = "la primera disponible" (explícito en el protocolo).
+ */
+function pickByLabel<T extends HTMLElement>(
+  items: T[],
+  query: string
+): { match: T | null; labels: string[] } {
+  const labels = items.map(optionLabel);
+  if (items.length === 0) return { match: null, labels };
+  if (!query.trim()) return { match: items[0], labels };
   const wanted = norm(query);
-  return items.find((o) => norm(o.textContent ?? '').includes(wanted)) ?? items[0];
+  const idx = labels.findIndex((l) => norm(l).includes(wanted));
+  return { match: idx >= 0 ? items[idx] : null, labels };
+}
+
+function noOptionError(option: string, labels: string[]): Error {
+  const visible = labels.filter(Boolean).slice(0, 12).join(', ');
+  return new Error(
+    `No encontré la opción "${option}". Opciones disponibles: ${visible || '(ninguna)'}.`
+  );
 }
 
 // --- Drivers ---
@@ -172,6 +214,7 @@ async function doNavigate(viewId: string): Promise<void> {
 async function doClick(ref: string): Promise<void> {
   const el = getEl(ref);
   if (!el) throw new Error(`No encontré el elemento ${ref}.`);
+  assertEnabled(el);
   await focusAndReveal(el);
   el.click();
   await sleep(650);
@@ -182,17 +225,31 @@ async function doType(ref: string, value: string): Promise<void> {
   if (!target) throw new Error(`No encontré el campo ${ref}.`);
   const input = findInput(target);
   if (!input) throw new Error(`El elemento ${ref} no es un campo de texto.`);
+  assertEnabled(input);
+  if (input.readOnly) {
+    throw new Error(`El campo «${computeAccessibleName(input)}» es de solo lectura.`);
+  }
   await focusAndReveal(input);
   await typeInto(input, value);
   await sleep(250);
 }
 
 async function selectInChoice(el: HTMLElement, option: string): Promise<void> {
-  const items = Array.from(el.querySelectorAll<HTMLElement>('[role="radio"],[role="tab"]')).filter(
-    (i) => i.getBoundingClientRect().width > 0
-  );
-  const match = pickByName(items, option);
-  if (!match) throw new Error('El grupo no tiene opciones.');
+  // El host de radios nativos puede contener radios de otros grupos: si
+  // observe() dejó el name del grupo, restringir las opciones a ese grupo.
+  const radioName = el.getAttribute(AI_RADIOS_ATTR);
+  const nativeSel = radioName
+    ? `input[type="radio"][name="${CSS.escape(radioName)}"]`
+    : 'input[type="radio"]';
+  const items = Array.from(
+    el.querySelectorAll<HTMLElement>(`[role="radio"],[role="tab"],${nativeSel}`)
+  ).filter((i) => i.getBoundingClientRect().width > 0);
+  const { match, labels } = pickByLabel(items, option);
+  if (!match) {
+    if (items.length === 0) throw new Error('El grupo no tiene opciones visibles.');
+    throw noOptionError(option, labels);
+  }
+  assertEnabled(match);
   highlightEl(match);
   await sleep(250);
   match.click();
@@ -215,8 +272,9 @@ async function selectInCombobox(el: HTMLElement, option: string): Promise<void> 
     await sleep(600);
     options = visibleOptions();
   }
-  const match = pickByName(options, query);
-  if (!match) throw new Error('El selector no mostró opciones.');
+  if (options.length === 0) throw new Error('El selector no mostró opciones.');
+  const { match, labels } = pickByLabel(options, query);
+  if (!match) throw noOptionError(option, labels);
   highlightEl(match);
   await sleep(250);
   match.click();
@@ -225,10 +283,15 @@ async function selectInCombobox(el: HTMLElement, option: string): Promise<void> 
 
 function selectNative(el: HTMLSelectElement, option: string): void {
   const opts = Array.from(el.options);
-  const match = option.trim()
-    ? (opts.find((o) => norm(o.textContent ?? '').includes(norm(option))) ?? opts[0])
-    : opts[0];
-  if (!match) throw new Error('El select no tiene opciones.');
+  if (opts.length === 0) throw new Error('El select no tiene opciones.');
+  const query = option.trim();
+  const match = query ? opts.find((o) => norm(o.textContent ?? '').includes(norm(query))) : opts[0];
+  if (!match) {
+    throw noOptionError(
+      option,
+      opts.map((o) => (o.textContent ?? '').trim())
+    );
+  }
   el.value = match.value;
   el.dispatchEvent(new Event('change', { bubbles: true }));
   el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -237,6 +300,7 @@ function selectNative(el: HTMLSelectElement, option: string): void {
 async function doSelect(ref: string, option: string): Promise<void> {
   const el = getEl(ref);
   if (!el) throw new Error(`No encontré el selector ${ref}.`);
+  assertEnabled(el);
   await focusAndReveal(el);
   if (el instanceof HTMLSelectElement) {
     selectNative(el, option);
@@ -247,24 +311,105 @@ async function doSelect(ref: string, option: string): Promise<void> {
   return selectInCombobox(el, option);
 }
 
+function isCheckedNow(el: HTMLElement): boolean {
+  if (el instanceof HTMLInputElement) return el.checked;
+  return el.getAttribute('aria-checked') === 'true';
+}
+
 async function doToggle(ref: string, on?: boolean): Promise<void> {
   const el = getEl(ref);
   if (!el) throw new Error(`No encontré el control ${ref}.`);
+  assertEnabled(el);
   await focusAndReveal(el);
-  const checked = el.getAttribute('aria-checked') === 'true';
+  const checked = isCheckedNow(el);
   if (on === undefined || on !== checked) {
     el.click();
     await sleep(450);
   }
+  // El click puede no producir el cambio (handler ajeno, elemento sin estado):
+  // si el modelo pidió un estado concreto, verificarlo en vez de asumir éxito.
+  if (on !== undefined && isCheckedNow(el) !== on) {
+    throw new Error(
+      `No pude ${on ? 'activar' : 'desactivar'} «${computeAccessibleName(el)}» (el estado no cambió).`
+    );
+  }
 }
 
-async function doExpand(ref: string): Promise<void> {
+/** Estado expandido actual; null si el elemento no expone aria-expanded. */
+function isExpandedNow(el: HTMLElement): boolean | null {
+  const attr = el.getAttribute('aria-expanded');
+  return attr === null ? null : attr === 'true';
+}
+
+async function doExpand(ref: string, open?: boolean): Promise<void> {
   const el = getEl(ref);
   if (!el) throw new Error(`No encontré la sección ${ref}.`);
+  assertEnabled(el);
   await focusAndReveal(el);
-  if (el.getAttribute('aria-expanded') !== 'true') {
+  const isOpen = isExpandedNow(el);
+  if (isOpen === null) {
+    throw new Error('El control no expone estado expandido (aria-expanded).');
+  }
+  const want = open ?? true;
+  if (isOpen !== want) {
     el.click();
     await sleep(650);
+    if (isExpandedNow(el) !== want) {
+      throw new Error(`No pude ${want ? 'desplegar' : 'plegar'} la sección (el estado no cambió).`);
+    }
+  }
+}
+
+function valueNow(el: HTMLElement): number {
+  return Number(el.getAttribute('aria-valuenow') ?? 'NaN');
+}
+
+function pressArrow(el: HTMLElement, key: 'ArrowRight' | 'ArrowLeft'): void {
+  el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+}
+
+/** Nos pasamos del objetivo: retroceder un paso si el valor previo era el más cercano. */
+async function settleOvershoot(
+  el: HTMLElement,
+  key: 'ArrowRight' | 'ArrowLeft',
+  current: number,
+  after: number,
+  value: number
+): Promise<void> {
+  if (Math.abs(current - value) < Math.abs(after - value)) {
+    pressArrow(el, key === 'ArrowRight' ? 'ArrowLeft' : 'ArrowRight');
+    await sleep(60);
+  }
+}
+
+/** Slider ARIA: se maneja por teclado (flechas sobre el elemento con el rol). */
+async function slideTo(el: HTMLElement, value: number): Promise<void> {
+  el.focus();
+  let step = 0;
+  for (let i = 0; i < 120; i++) {
+    const current = valueNow(el);
+    if (!Number.isFinite(current) || current === value) break;
+    const key = current < value ? 'ArrowRight' : 'ArrowLeft';
+    pressArrow(el, key);
+    // eslint-disable-next-line no-await-in-loop
+    await sleep(60); // margen para re-render antes del stuck-check
+    const after = valueNow(el);
+    if (after === current) break; // no responde al teclado — cortar
+    step = Math.abs(after - current);
+    // Overshoot: el objetivo no está alineado al step del slider. Quedarse con
+    // el valor más cercano en vez de oscilar hasta agotar el bucle.
+    if (after !== value && current < value !== after < value) {
+      // eslint-disable-next-line no-await-in-loop
+      await settleOvershoot(el, key, current, after, value);
+      break;
+    }
+  }
+  const final = valueNow(el);
+  // Tolerancia de un step para objetivos no alineados (step=5, objetivo 7 → queda 5).
+  if (!Number.isFinite(final) || Math.abs(final - value) > step) {
+    throw new Error(
+      `No pude fijar el valor ${value} (quedó en ${Number.isFinite(final) ? final : 'desconocido'}).`
+    );
   }
 }
 
@@ -276,8 +421,11 @@ async function stepTo(el: HTMLElement, value: number): Promise<void> {
   const dec = buttons.find((b) =>
     /dismin|decrease|menos|restar|-|bajar/i.test(computeAccessibleName(b, true))
   );
+  if (!inc && !dec) {
+    throw new Error('El control numérico no tiene campo editable ni botones +/- reconocibles.');
+  }
   for (let i = 0; i < 50; i++) {
-    const current = Number(el.getAttribute('aria-valuenow') ?? 'NaN');
+    const current = valueNow(el);
     if (!Number.isFinite(current) || current === value) break;
     const btn = current < value ? inc : dec;
     if (!btn) break;
@@ -285,31 +433,55 @@ async function stepTo(el: HTMLElement, value: number): Promise<void> {
     // eslint-disable-next-line no-await-in-loop
     await sleep(180);
   }
+  const final = valueNow(el);
+  if (final !== value) {
+    throw new Error(
+      `No pude llegar al valor ${value} (quedó en ${Number.isFinite(final) ? final : 'desconocido'}).`
+    );
+  }
 }
 
 async function doSetNumber(ref: string, value: number): Promise<void> {
   const el = getEl(ref);
   if (!el) throw new Error(`No encontré el campo numérico ${ref}.`);
+  assertEnabled(el);
   await focusAndReveal(el);
   const input = findInput(el);
   if (input) {
+    if (input.readOnly)
+      throw new Error(`El campo «${computeAccessibleName(input)}» es de solo lectura.`);
     await typeInto(input, String(value));
     await sleep(250);
     return;
   }
+  if (el.getAttribute('role') === 'slider') return slideTo(el, value);
   await stepTo(el, value);
+}
+
+/** Adapta "YYYY-MM-DD" / "YYYY-MM-DDTHH:MM" al formato exacto que exige el input nativo. */
+function coerceDateValue(type: string, date: string): string {
+  if (type === 'date') return date.slice(0, 10);
+  if (type === 'datetime-local') return date.includes('T') ? date : `${date}T00:00`;
+  if (type === 'time') return date.includes('T') ? date.slice(11, 16) : date;
+  return date;
 }
 
 async function doPickDate(ref: string, date: string): Promise<void> {
   const el = getEl(ref);
   if (!el) throw new Error(`No encontré el campo de fecha ${ref}.`);
+  assertEnabled(el);
   const input = findInput(el);
   if (
     input &&
     (input.type === 'date' || input.type === 'time' || input.type === 'datetime-local')
   ) {
+    const value = coerceDateValue(input.type, date);
     await focusAndReveal(input);
-    await typeInto(input, date, false);
+    await typeInto(input, value, false);
+    // Los inputs nativos rechazan EN SILENCIO un formato inválido (value queda vacío).
+    if (!input.value) {
+      throw new Error(`El campo no aceptó "${value}" (es un input de tipo ${input.type}).`);
+    }
     return;
   }
   // Trigger de calendario en popover.
@@ -346,7 +518,7 @@ export async function act(action: AgentAction): Promise<void> {
     case 'toggle':
       return doToggle(action.ref, action.on);
     case 'expand':
-      return doExpand(action.ref);
+      return doExpand(action.ref, action.open);
     case 'setNumber':
       return doSetNumber(action.ref, action.value);
     case 'pickDate':
@@ -356,7 +528,10 @@ export async function act(action: AgentAction): Promise<void> {
     case 'finish':
       clearHighlight();
       return;
-    default:
-      return;
+    default: {
+      // Guard de exhaustividad: un verbo nuevo en types/parse sin driver acá debe fallar ruidoso.
+      const unknown: never = action;
+      throw new Error(`Acción sin driver: ${JSON.stringify(unknown)}`);
+    }
   }
 }
