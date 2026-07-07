@@ -38,6 +38,7 @@ CADA CONTROL TIENE UN kind. Usá el verbo que le corresponde:
 NOTAS:
 - Aprovechá el estado: si un control ya tiene el "value" correcto o el state "checked"/"selected"/"expanded" que querés, NO lo repitas — pasá al siguiente.
 - state "disabled" = el control existe pero está bloqueado: NO lo acciones; primero completá lo que falte para habilitarlo. state "readonly" = campo de solo lectura: no intentes escribirle.
+- AVISOS RECIENTES = los toasts que dispararon tus acciones (confirmaciones "Guardado", errores de validación). Usalos como feedback: un error explica qué corregir; una confirmación te acerca al finish.
 - PICKERS DE BÚSQUEDA (paciente, mascota, profesional, veterinario, contacto): después de elegir, el campo se convierte en un "chip" con el nombre y DESAPARECE de la lista de controles. Eso significa que YA quedó seleccionado: NO lo vuelvas a elegir, NO busques otro campo para lo mismo, NO intentes borrarlo — pasá directo al siguiente campo.
 - En general, si un campo que completaste deja de aparecer, asumí que quedó bien y seguí.
 - Si hay opciones inline (choice) elegí por su etiqueta exacta.
@@ -78,6 +79,11 @@ function renderScreen(screen: ObservedScreen): string {
   }
 
   for (const table of screen.tables) lines.push(...renderTable(table));
+
+  if (screen.notices?.length) {
+    lines.push('\nAVISOS RECIENTES (toasts de los últimos segundos — feedback de tus acciones):');
+    for (const n of screen.notices) lines.push(`  - ${n}`);
+  }
 
   return lines.join('\n');
 }

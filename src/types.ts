@@ -62,6 +62,8 @@ export interface ObservedScreen {
   controls: ScreenControl[];
   /** TODAS las tablas visibles del scope (una vista puede tener varias). */
   tables: ScreenTable[];
+  /** Toasts recientes (últimos 30 s): feedback efímero que el agente no llegaría a ver. */
+  notices: string[];
 }
 
 export type AgentAction =

@@ -335,8 +335,12 @@ async function doToggle(ref: string, on?: boolean): Promise<void> {
   }
 }
 
-/** Estado expandido actual; null si el elemento no expone aria-expanded. */
+/** Estado expandido actual; null si el elemento no expone estado. */
 function isExpandedNow(el: HTMLElement): boolean | null {
+  // <summary> nativo: el estado vive en el <details> padre, no en ARIA.
+  if (el.tagName === 'SUMMARY' && el.parentElement instanceof HTMLDetailsElement) {
+    return el.parentElement.open;
+  }
   const attr = el.getAttribute('aria-expanded');
   return attr === null ? null : attr === 'true';
 }

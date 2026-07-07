@@ -78,6 +78,45 @@ async function getMenus(): Promise<MenuItem[]> {
   }
 }
 
+// --- Avisos efímeros (toasts) ---
+//
+// Los toasts (Sonner: [data-sonner-toast]) duran segundos y el agente observa
+// DESPUÉS de actuar — sin buffer, nunca vería el "Guardado" o el error de
+// validación. Un MutationObserver captura cada toast al aparecer y observe()
+// reporta los recientes.
+
+const NOTICE_TTL_MS = 30_000;
+const NOTICE_MAX = 5;
+let notices: { text: string; at: number }[] = [];
+let noticeObserver: MutationObserver | null = null;
+const seenToasts = new WeakSet<Element>();
+
+function collectToasts(): void {
+  document.querySelectorAll('[data-sonner-toast]').forEach((el) => {
+    if (seenToasts.has(el)) return;
+    seenToasts.add(el);
+    const text = clean(el.textContent);
+    if (text) notices.push({ text, at: Date.now() });
+  });
+}
+
+/**
+ * Arranca la captura de toasts. Idempotente; el drawer lo llama al montar
+ * para no perder los avisos previos a la primera observación.
+ */
+export function startNoticeCapture(): void {
+  if (noticeObserver || typeof MutationObserver === 'undefined') return;
+  noticeObserver = new MutationObserver(collectToasts);
+  noticeObserver.observe(document.body, { childList: true, subtree: true });
+  collectToasts();
+}
+
+function recentNotices(): string[] {
+  const cutoff = Date.now() - NOTICE_TTL_MS;
+  notices = notices.filter((n) => n.at >= cutoff);
+  return notices.slice(-NOTICE_MAX).map((n) => n.text);
+}
+
 // --- Helpers DOM ---
 
 function clean(s: string | null | undefined): string {
@@ -383,6 +422,18 @@ function readExpandables(ctx: Ctx): void {
       state: isDisabled(el) ? 'disabled' : expanded ? 'expanded' : 'collapsed',
     });
   });
+  // <details>/<summary> nativo: expandible SIN aria-expanded (el estado vive
+  // en details.open). Lo genera, p. ej., el contenedor Plegable del Builder.
+  ctx.scope.querySelectorAll<HTMLElement>('details > summary').forEach((el) => {
+    if (ctx.claimed.has(el) || !isVisible(el)) return;
+    ctx.claimed.add(el);
+    const open = (el.parentElement as HTMLDetailsElement).open;
+    emit(ctx, el, {
+      kind: 'expandable',
+      name: computeAccessibleName(el, true),
+      state: isDisabled(el) ? 'disabled' : open ? 'expanded' : 'collapsed',
+    });
+  });
 }
 
 function readButtons(ctx: Ctx): void {
@@ -438,6 +489,7 @@ function resolveViewTitle(activeViewId: string | null, menus: MenuItem[]): strin
 
 /** Foto de la pantalla actual; taggea cada control accionable. */
 export async function observe(): Promise<ObservedScreen> {
+  startNoticeCapture(); // arranque perezoso si el drawer no lo hizo aún
   const menus = await getMenus();
   const { el: scope, layer } = getScope();
   clearRefs();
@@ -464,5 +516,6 @@ export async function observe(): Promise<ObservedScreen> {
     menus,
     controls: ctx.controls,
     tables,
+    notices: recentNotices(),
   };
 }
