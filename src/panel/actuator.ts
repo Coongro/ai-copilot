@@ -17,7 +17,7 @@
 
 import { computeAccessibleName } from './accname.js';
 import { navigateTo } from './bridge.js';
-import { AI_REF_ATTR, AI_KIND_ATTR } from './screen-reader.js';
+import { AI_REF_ATTR, AI_KIND_ATTR, isDisabled } from './screen-reader.js';
 import type { AgentAction } from './types.js';
 
 const TYPE_DELAY_MS = 38;
@@ -113,11 +113,7 @@ function kindOf(el: HTMLElement): string {
 }
 
 function assertEnabled(el: HTMLElement): void {
-  const disabled =
-    ('disabled' in el && (el as HTMLInputElement | HTMLButtonElement).disabled) ||
-    el.getAttribute('aria-disabled') === 'true' ||
-    el.closest('fieldset[disabled]') !== null;
-  if (disabled) {
+  if (isDisabled(el)) {
     throw new Error(
       `«${computeAccessibleName(el, true) || 'El control'}» está deshabilitado — probablemente falte completar otro campo antes.`
     );

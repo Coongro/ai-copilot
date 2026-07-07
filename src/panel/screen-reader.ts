@@ -92,7 +92,7 @@ function isVisible(el: Element): boolean {
   return style.visibility !== 'hidden' && style.opacity !== '0';
 }
 
-function isDisabled(el: HTMLElement): boolean {
+export function isDisabled(el: HTMLElement): boolean {
   if ('disabled' in el && (el as HTMLInputElement | HTMLButtonElement).disabled) return true;
   if (el.getAttribute('aria-disabled') === 'true') return true;
   return el.closest('fieldset[disabled]') !== null;
