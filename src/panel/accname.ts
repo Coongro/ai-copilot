@@ -75,8 +75,12 @@ export function nearestSectionTitle(el: HTMLElement): string {
   return '';
 }
 
-/** Para controles cuyo nombre ES su texto (botones, tabs, opciones). */
+/**
+ * Para controles cuyo nombre ES su texto (botones, tabs, opciones).
+ * Los input[type=submit|button] no tienen textContent: su texto es el value.
+ */
 function ownText(el: HTMLElement): string {
+  if (el instanceof HTMLInputElement) return clean(el.value);
   return clean(el.textContent);
 }
 

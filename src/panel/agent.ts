@@ -41,7 +41,9 @@ function describeAction(action: AgentAction): string {
     case 'toggle':
       return `🔘 ${action.on === false ? 'Desactivando' : 'Activando'} «${labelOf(action.ref)}»`;
     case 'expand':
-      return `⬇️ Desplegando «${labelOf(action.ref)}»`;
+      return action.open === false
+        ? `⬆️ Plegando «${labelOf(action.ref)}»`
+        : `⬇️ Desplegando «${labelOf(action.ref)}»`;
     case 'setNumber':
       return `🔢 Poniendo ${action.value} en «${labelOf(action.ref)}»`;
     case 'pickDate':

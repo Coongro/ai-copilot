@@ -47,6 +47,8 @@ export interface ScreenTableRow {
 }
 
 export interface ScreenTable {
+  /** Caption o aria-label de la tabla (distingue tablas múltiples en una vista). */
+  name?: string;
   columns: string[];
   rows: ScreenTableRow[];
   truncated?: boolean;
@@ -58,7 +60,8 @@ export interface ObservedScreen {
   layer: 'main' | 'dialog' | 'popover';
   menus: MenuItem[];
   controls: ScreenControl[];
-  table: ScreenTable | null;
+  /** TODAS las tablas visibles del scope (una vista puede tener varias). */
+  tables: ScreenTable[];
 }
 
 export type AgentAction =
@@ -67,7 +70,7 @@ export type AgentAction =
   | { type: 'type'; ref: string; text: string }
   | { type: 'select'; ref: string; option: string }
   | { type: 'toggle'; ref: string; on?: boolean }
-  | { type: 'expand'; ref: string }
+  | { type: 'expand'; ref: string; open?: boolean }
   | { type: 'setNumber'; ref: string; value: number }
   | { type: 'pickDate'; ref: string; date: string }
   | { type: 'wait'; ms?: number }
