@@ -22,7 +22,7 @@ Un control es **legible** por el Copiloto si (1) expone un **rol reconocible** (
 | Inputs | `input`, `textarea` (menos los del set SKIP) | `text` / `number` / `date` | `readInputs` |
 | Toggles | `[role="checkbox"]`, `[role="switch"]`, `input[type="checkbox"]` | `toggle` | `readToggles` |
 | Numéricos | `[role="spinbutton"]`, `[role="slider"]` | `number` | `readNumbers` |
-| Expandibles | `[aria-expanded]` (no combobox) | `expandable` | `readExpandables` |
+| Expandibles | `[aria-expanded]` (no combobox) + `details > summary` nativo (estado en `details.open`) | `expandable` | `readExpandables` |
 | Botones | `button`, `[role="button"]`, `a[href]`, `input[type="submit"|"button"]` | `button` | `readButtons` |
 | Tablas | `table` (todas las visibles; filas = `button`) | — | `readTables` |
 
@@ -104,3 +104,11 @@ Endurecimiento post-review (silent-failure hunt, misma rama):
 - **`doPickDate` nativo**: adapta el formato al `type` del input (`coerceDateValue`) y verifica que el value haya quedado — los inputs nativos rechazan formatos inválidos EN SILENCIO dejando `value=''`.
 - **Radios nativos**: si el ancestro común ya está reclamado, el grupo sube hasta un host libre (no se descarta); el host lleva `data-cg-ai-radios="<name>"` y el actuador restringe las opciones a ese grupo (evita clickear radios de otro grupo bajo el mismo contenedor).
 - **`act()` exhaustivo**: verbo sin driver tira error (guard `never`) en vez de "ejecutarse" sin hacer nada.
+
+### 2026-07-07 — Avisos efímeros (toasts) (COONG-231)
+
+Los toasts (Sonner, `[data-sonner-toast]`) duran segundos y el agente observa DESPUÉS de actuar — nunca veía el "Guardado" ni los errores de validación. `startNoticeCapture()` (MutationObserver sobre body, arranca al montar el drawer y perezosamente en `observe()`) bufferea cada toast al aparecer; `observe()` reporta los de los últimos 30 s (máx. 5) en `ObservedScreen.notices` y el prompt los muestra como "AVISOS RECIENTES". Si se cambia la librería de toasts del host, actualizar el selector.
+
+### 2026-07-07 — `<details>/<summary>` nativo (COONG-231)
+
+Hallado por `audit_copilot` del View Builder: el contenedor Plegable del Builder genera `<details>/<summary>` sin `aria-expanded`, familia que el reader no soportaba → los Plegables eran invisibles e inoperables para el copiloto. Fix: `readExpandables` lee `details > summary` (estado desde `details.open`) e `isExpandedNow` del actuador lo opera (el click en summary togglea nativo).

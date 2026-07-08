@@ -39,6 +39,11 @@ export interface ScreenControl {
   options?: ControlOption[];
   placeholder?: string;
   meta?: Record<string, string>;
+  /**
+   * Región semántica del control: 'filter' (barra de filtros: solo acota la lista,
+   * no crea/guarda), 'row-action' (acción sobre una fila). Ausente = contenido/formulario.
+   */
+  region?: 'filter' | 'row-action';
 }
 
 export interface ScreenTableRow {
@@ -62,6 +67,8 @@ export interface ObservedScreen {
   controls: ScreenControl[];
   /** TODAS las tablas visibles del scope (una vista puede tener varias). */
   tables: ScreenTable[];
+  /** Toasts recientes (últimos 30 s): feedback efímero que el agente no llegaría a ver. */
+  notices: string[];
 }
 
 export type AgentAction =

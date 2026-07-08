@@ -14,6 +14,10 @@ import type { AgentAction, IntelligenceLevel, TurnRecord, TurnResponse } from '.
 
 const MAX_STEPS = 28;
 const STEP_PAUSE_MS = 450;
+/** Misma acción idéntica que falla esta cantidad de veces → cortamos el bucle. */
+const MAX_SAME_ACTION_FAILURES = 2;
+/** Fallas seguidas (aunque varíen) sin ningún paso exitoso → cortamos el bucle. */
+const MAX_CONSECUTIVE_FAILURES = 5;
 
 function labelOf(ref: string): string {
   const el = document.querySelector<HTMLElement>(`[${AI_REF_ATTR}="${CSS.escape(ref)}"]`);
@@ -102,6 +106,12 @@ export async function runAgent(goal: string, level: IntelligenceLevel): Promise<
     // referencias como "ese contacto" o "ahora ponele…".
     const conversation = copilotStore.getSnapshot().conversation;
 
+    // Circuit breaker: un modelo débil puede reintentar la MISMA acción imposible
+    // sin fin (quemando saldo). Cortamos si una acción idéntica falla repetido, o
+    // si se acumulan fallas seguidas sin ningún paso exitoso.
+    const failuresByAction = new Map<string, number>();
+    let consecutiveFailures = 0;
+
     for (let step = 0; step < MAX_STEPS; step++) {
       if (copilotStore.getSnapshot().abortRequested) {
         copilotStore.addMessage('assistant', 'text', '⏹️ Me detuve a pedido tuyo.');
@@ -153,6 +163,36 @@ export async function runAgent(goal: string, level: IntelligenceLevel): Promise<
 
       // Guardamos el error en el historial para que el LLM lo vea y se recupere.
       history.push({ thought: turn.thought, action: turn.action, error: actionError });
+
+      // Circuit breaker: si el modelo insiste con una acción que ya falla o se
+      // traba acumulando errores, frenamos antes de gastar todo el saldo.
+      if (actionError) {
+        consecutiveFailures += 1;
+        const key = JSON.stringify(turn.action);
+        const sameFailures = (failuresByAction.get(key) ?? 0) + 1;
+        failuresByAction.set(key, sameFailures);
+        if (
+          sameFailures >= MAX_SAME_ACTION_FAILURES ||
+          consecutiveFailures >= MAX_CONSECUTIVE_FAILURES
+        ) {
+          const reason =
+            sameFailures >= MAX_SAME_ACTION_FAILURES
+              ? `repetí una acción (${turn.action.type}) que sigue fallando`
+              : `acumulé ${consecutiveFailures} errores seguidos`;
+          copilotStore.addMessage(
+            'assistant',
+            'error',
+            `Me trabé: ${reason} y no logro avanzar. Frené para no gastar tu saldo en un bucle. ` +
+              'Probá reformular el pedido, o hacé el paso a mano y pedime seguir desde ahí.'
+          );
+          copilotStore.addConversationEntry(goal, `No se completó: ${reason}.`);
+          copilotStore.setStatus('error');
+          return;
+        }
+      } else {
+        consecutiveFailures = 0;
+      }
+
       await new Promise((r) => setTimeout(r, STEP_PAUSE_MS));
     }
 

@@ -11,6 +11,7 @@ import { getHostReact } from '@coongro/plugin-sdk';
 
 import { runAgent } from './agent.js';
 import { fetchBalance } from './api.js';
+import { startNoticeCapture } from './screen-reader.js';
 import { copilotStore, getSnapshot, subscribe, type CopilotState } from './store.js';
 import type { CopilotMessage, IntelligenceLevel } from './types.js';
 
@@ -195,11 +196,13 @@ function Composer({
   level,
   onLevel,
   onSend,
+  onStop,
 }: {
   running: boolean;
   level: IntelligenceLevel;
   onLevel: (l: IntelligenceLevel) => void;
   onSend: (goal: string) => void;
+  onStop: () => void;
 }) {
   const [input, setInput] = React.useState('');
   const submit = () => {
@@ -252,25 +255,47 @@ function Composer({
             padding: '0 12px',
           }}
         />
-        <button
-          type="button"
-          onClick={submit}
-          disabled={running || input.trim().length === 0}
-          style={{
-            height: 36,
-            padding: '0 16px',
-            borderRadius: 8,
-            border: 'none',
-            background: COLORS.brand,
-            color: '#1a1a1a',
-            fontWeight: 600,
-            fontSize: 13,
-            cursor: running ? 'not-allowed' : 'pointer',
-            opacity: running || input.trim().length === 0 ? 0.5 : 1,
-          }}
-        >
-          {running ? '…' : 'Enviar'}
-        </button>
+        {running ? (
+          <button
+            type="button"
+            onClick={onStop}
+            aria-label="Detener al asistente"
+            title="Detener al asistente"
+            style={{
+              height: 36,
+              padding: '0 16px',
+              borderRadius: 8,
+              border: `1px solid ${COLORS.danger}`,
+              background: 'transparent',
+              color: COLORS.danger,
+              fontWeight: 600,
+              fontSize: 13,
+              cursor: 'pointer',
+            }}
+          >
+            ⏹ Detener
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={submit}
+            disabled={input.trim().length === 0}
+            style={{
+              height: 36,
+              padding: '0 16px',
+              borderRadius: 8,
+              border: 'none',
+              background: COLORS.brand,
+              color: '#1a1a1a',
+              fontWeight: 600,
+              fontSize: 13,
+              cursor: 'pointer',
+              opacity: input.trim().length === 0 ? 0.5 : 1,
+            }}
+          >
+            Enviar
+          </button>
+        )}
       </div>
     </div>
   );
@@ -280,6 +305,12 @@ export function CopilotDrawer({ onClose }: { onClose?: () => void }): React.Reac
   const state = useCopilot();
   const [level, setLevel] = React.useState<IntelligenceLevel>('standard');
   const scrollRef = React.useRef<HTMLDivElement>(null);
+
+  // Captura de toasts desde que se abre el drawer: son efímeros y el agente
+  // observa después de actuar — sin el buffer nunca vería el feedback.
+  React.useEffect(() => {
+    startNoticeCapture();
+  }, []);
 
   React.useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -348,7 +379,13 @@ export function CopilotDrawer({ onClose }: { onClose?: () => void }): React.Reac
         )}
       </div>
 
-      <Composer running={state.running} level={level} onLevel={setLevel} onSend={send} />
+      <Composer
+        running={state.running}
+        level={level}
+        onLevel={setLevel}
+        onSend={send}
+        onStop={() => copilotStore.requestAbort()}
+      />
     </div>
   );
 }
