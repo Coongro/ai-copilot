@@ -39,6 +39,11 @@ export interface ScreenControl {
   options?: ControlOption[];
   placeholder?: string;
   meta?: Record<string, string>;
+  /**
+   * Región semántica del control: 'filter' (barra de filtros: solo acota la lista,
+   * no crea/guarda), 'row-action' (acción sobre una fila). Ausente = contenido/formulario.
+   */
+  region?: 'filter' | 'row-action';
 }
 
 export interface ScreenTableRow {

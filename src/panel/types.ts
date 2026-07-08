@@ -34,6 +34,12 @@ export interface ScreenControl {
   options?: ControlOption[];
   placeholder?: string;
   meta?: Record<string, string>;
+  /**
+   * Región semántica del control, para que el modelo distinga qué está mirando:
+   * 'filter' (barra de filtros: solo acota la lista, no crea/guarda), 'row-action'
+   * (acción sobre una fila de tabla). Ausente = control de contenido/formulario.
+   */
+  region?: 'filter' | 'row-action';
 }
 
 export interface ScreenTableRow {

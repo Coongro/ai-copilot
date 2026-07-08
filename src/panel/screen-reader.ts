@@ -182,11 +182,25 @@ interface Ctx {
   n: number;
 }
 
+/**
+ * Región semántica del control, para que el modelo distinga filtros de campos de
+ * formulario. Prioriza la marca explícita del design system (data-cg-region, ej.
+ * FilterBar) y cae a una heurística estructural: un control dentro de <tbody> es
+ * una acción de fila. Sin señal → contenido/formulario (undefined).
+ */
+function regionOf(el: Element): ScreenControl['region'] {
+  const marked = el.closest('[data-cg-region]')?.getAttribute('data-cg-region');
+  if (marked === 'filter' || marked === 'row-action') return marked;
+  if (el.closest('tbody')) return 'row-action';
+  return undefined;
+}
+
 function emit(ctx: Ctx, el: HTMLElement, control: Omit<ScreenControl, 'ref'>): void {
   const ref = `c${ctx.n++}`;
   el.setAttribute(AI_REF_ATTR, ref);
   el.setAttribute(AI_KIND_ATTR, control.kind);
-  ctx.controls.push({ ref, ...control });
+  const region = regionOf(el);
+  ctx.controls.push({ ref, ...control, ...(region ? { region } : {}) });
 }
 
 function toggleState(el: Element): string {
@@ -439,6 +453,10 @@ function readExpandables(ctx: Ctx): void {
 function readButtons(ctx: Ctx): void {
   ctx.scope.querySelectorAll<HTMLElement>(SEL.buttons).forEach((el) => {
     if (ctx.claimed.has(el) || el.closest(SEL.combobox)) return;
+    // Los <th> de tabla son botones de ordenamiento (sort), no acciones: el modelo
+    // ya ve las columnas en la tabla. Emitirlos solo agrega ruido y confusión
+    // (ej. un header "Producto" que compite con el campo real).
+    if (el.closest('thead')) return;
     if (!isVisible(el)) return;
     const name = computeAccessibleName(el, true);
     if (!name) return;

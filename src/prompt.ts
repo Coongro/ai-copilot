@@ -24,6 +24,9 @@ REGLAS:
 - Una acción por turno. Después recibís la pantalla actualizada.
 - Usá SOLO los ref/viewId que aparecen en la pantalla. No inventes.
 
+NAVEGACIÓN: para abrir otra vista usá los MENÚS (aparecen listados como "path → viewId"). Los menús NO son controles clickeables — no tienen ref. Se abren SOLO con:
+- navegar     → { "type": "navigate", "viewId": "<viewId del menú>" }   (usá el viewId EXACTO del menú; nunca lo pongas como "ref" de un click)
+
 CADA CONTROL TIENE UN kind. Usá el verbo que le corresponde:
 - kind "button"     → { "type": "click", "ref": "<ref>" }           (botones, links, filas de tabla)
 - kind "text"       → { "type": "type", "ref": "<ref>", "text": "<texto>" }
@@ -35,6 +38,12 @@ CADA CONTROL TIENE UN kind. Usá el verbo que le corresponde:
 - kind "expandable" → { "type": "expand", "ref": "<ref>" }   (abre una sección colapsada; luego re-observás los campos nuevos; con "open": false la plegás/cerrás)
 - Genéricos: { "type": "wait", "ms": 600 } y { "type": "finish", "summary": "<resumen>" }.
 
+MIRÁ ANTES DE ACTUAR (pensá qué ves, no dispares la primera acción que se te ocurre):
+- La pantalla separa lo que ves en secciones: CONTROLES (acciones y campos de formulario), FILTROS (solo acotan la lista, NO crean ni guardan) y ACCIONES POR FILA. Respetalas: para CREAR/AGREGAR algo NUNCA uses un control de FILTROS.
+- Para crear algo primero abrí el alta (botón "Nuevo…/Cargar…/Agregar…/Registrar…") y esperá a que aparezca su formulario; recién ahí completás sus campos. Si no ves el campo que esperás (cantidad, fecha, etc.), casi siempre falta abrir el alta — NO es que el ref sea otro.
+- Los ref son literales de la lista; nunca los inventes ni los deduzcas por patrón (c1, c2, c3…): un ref que no figura, no existe.
+- Si una acción falla con "no encontré el elemento/campo", NO pruebes variantes del mismo ref — volvé a leer la pantalla y replanteá qué paso previo falta.
+
 NOTAS:
 - Aprovechá el estado: si un control ya tiene el "value" correcto o el state "checked"/"selected"/"expanded" que querés, NO lo repitas — pasá al siguiente.
 - state "disabled" = el control existe pero está bloqueado: NO lo acciones; primero completá lo que falte para habilitarlo. state "readonly" = campo de solo lectura: no intentes escribirle.
@@ -44,7 +53,7 @@ NOTAS:
 - Si hay opciones inline (choice) elegí por su etiqueta exacta.
 - RECUPERACIÓN: si en el historial la acción anterior dice "⚠️ FALLÓ", NO la repitas igual. Probá otra cosa (otro ref, otro valor/opción, expandí una sección, o esperá con wait); si realmente no se puede, hacé finish explicando.
 - Si la tabla indica que hay más filas, usá la búsqueda o paginá en vez de asumir que el registro no está.
-- FINALIZÁ con finish cuando el objetivo esté cumplido: tras guardar un registro la pantalla cambia (vuelve a la lista o abre el detalle) y el formulario/diálogo desaparece. No sigas actuando después de eso.
+- FINALIZÁ con finish SOLO con evidencia observable de que el efecto se concretó — NO alcanza con haber clickeado el botón de confirmar. Haber accionado "Guardar"/"Cobrar"/"Registrar" no prueba nada por sí solo: la prueba está en la pantalla del turno siguiente. Confirman: un toast de éxito ("Guardado", "Cobro registrado"), el cierre del formulario/diálogo, el registro apareciendo en la lista, o el estado pendiente que pasó a resuelto (un saldo "Impaga" que quedó saldado). NUNCA hagas finish en el MISMO turno en que confirmaste: emití la acción, y en el turno siguiente MIRÁ el resultado antes de cerrar. Si tras confirmar el diálogo sigue abierto o el estado pendiente persiste igual, la acción NO tomó efecto — no declares éxito: seguí operando (revisá qué falta, reintentá, o esperá con wait). Un finish que afirma algo que la pantalla no confirma es un error grave: preferí seguir actuando antes que mentir el resultado.
 
 ALCANCE: operás CUALQUIER módulo que el usuario tenga instalado — te guiás por los MENÚS disponibles y por la pantalla observada, sin asumir un dominio fijo. Si el objetivo no se puede lograr con los menús/controles visibles (el módulo no está, la vista no existe), respondé con finish explicándolo con claridad.
 
@@ -73,9 +82,27 @@ function renderScreen(screen: ObservedScreen): string {
     for (const m of screen.menus) if (m.viewId) lines.push(`  - ${m.path} → viewId: ${m.viewId}`);
   }
 
-  if (screen.controls.length > 0) {
-    lines.push('\nCONTROLES:');
-    for (const c of screen.controls) lines.push(renderControl(c));
+  // Separar por región: los filtros y las acciones de fila se listan aparte para
+  // que el modelo no confunda un filtro con un campo de formulario (ver observador).
+  const filters = screen.controls.filter((c) => c.region === 'filter');
+  const rowActions = screen.controls.filter((c) => c.region === 'row-action');
+  const main = screen.controls.filter((c) => c.region !== 'filter' && c.region !== 'row-action');
+
+  if (main.length > 0) {
+    lines.push('\nCONTROLES (botones de acción y campos de formulario):');
+    for (const c of main) lines.push(renderControl(c));
+  }
+
+  if (filters.length > 0) {
+    lines.push(
+      '\nFILTROS (SOLO acotan lo que se ve en la lista de abajo — NO crean, guardan ni dan de alta nada; para crear algo NO uses estos):'
+    );
+    for (const c of filters) lines.push(renderControl(c));
+  }
+
+  if (rowActions.length > 0) {
+    lines.push('\nACCIONES POR FILA (operan sobre una fila puntual de la tabla):');
+    for (const c of rowActions) lines.push(renderControl(c));
   }
 
   for (const table of screen.tables) lines.push(...renderTable(table));
@@ -151,9 +178,28 @@ export function composeSystemPrompt(businessContext?: string | null): string {
   ].join('\n');
 }
 
+/** Fecha de hoy legible + ISO, para que el modelo resuelva fechas relativas. */
+function todayLine(): string {
+  const now = new Date();
+  const iso = now.toISOString().slice(0, 10);
+  let legible = iso;
+  try {
+    legible = now.toLocaleDateString('es-AR', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    });
+  } catch {
+    // Sin ICU: nos quedamos con el ISO.
+  }
+  return `FECHA DE HOY: ${iso} (${legible}). Usala para resolver fechas relativas del objetivo ("hoy", "mañana", "la semana/el mes que viene", "en 3 días", etc.). Las fechas van SIEMPRE en formato AAAA-MM-DD.`;
+}
+
 export function buildMessages(req: TurnRequest, businessContext?: string | null): ChatMessage[] {
   const user = [
     renderConversation(req.conversation),
+    todayLine(),
     `OBJETIVO DEL USUARIO: ${req.goal}`,
     '',
     'ACCIONES QUE YA REALIZASTE (en esta tarea):',

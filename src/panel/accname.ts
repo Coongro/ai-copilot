@@ -76,12 +76,30 @@ export function nearestSectionTitle(el: HTMLElement): string {
 }
 
 /**
+ * Texto de un elemento insertando un espacio en cada frontera de sub-elemento,
+ * para no PEGAR textos de nodos hermanos. `textContent` aplana todo sin
+ * separador: una tarjeta con <span>Rocco</span><span>Labrador</span> daría
+ * "RoccoLabrador"; acá da "Rocco Labrador". `clean()` colapsa el excedente.
+ */
+function textWithBoundaries(el: Node): string {
+  let out = '';
+  el.childNodes.forEach((node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      out += node.textContent ?? '';
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      out += ` ${textWithBoundaries(node)} `;
+    }
+  });
+  return out;
+}
+
+/**
  * Para controles cuyo nombre ES su texto (botones, tabs, opciones).
  * Los input[type=submit|button] no tienen textContent: su texto es el value.
  */
 function ownText(el: HTMLElement): string {
   if (el instanceof HTMLInputElement) return clean(el.value);
-  return clean(el.textContent);
+  return clean(textWithBoundaries(el));
 }
 
 export function computeAccessibleName(el: HTMLElement, includeOwnText = false): string {

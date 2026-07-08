@@ -256,25 +256,72 @@ async function selectInChoice(el: HTMLElement, option: string): Promise<void> {
   await sleep(450);
 }
 
+/** Tipea un query en el buscador del combobox y devuelve las opciones visibles. */
+async function typeAndCollect(search: HTMLInputElement, query: string): Promise<HTMLElement[]> {
+  await typeInto(search, query);
+  await sleep(750);
+  let options = visibleOptions();
+  if (options.length === 0) {
+    await sleep(400);
+    options = visibleOptions();
+  }
+  return options;
+}
+
+/**
+ * ¿La opción corresponde al query? Contención en cualquier dirección: cubre el
+ * caso "Rocco Labrador" (lo que el modelo pidió, del nombre completo) vs "Rocco"
+ * (la opción real que muestra un buscador que filtra por nombre).
+ */
+function optionMatches(o: HTMLElement, query: string): boolean {
+  const l = norm(optionLabel(o));
+  const q = norm(query);
+  return l.length > 0 && (l.includes(q) || q.includes(l));
+}
+
 async function selectInCombobox(el: HTMLElement, option: string): Promise<void> {
   el.click();
   await sleep(450);
   const query = option.trim();
   const search = el.querySelector('input');
-  if (search && query) {
-    await typeInto(search, query);
-    await sleep(750);
-  } else {
+
+  // Sin buscador (o query vacío): las opciones ya están; elegir por etiqueta.
+  if (!search || !query) {
     await sleep(500);
+    let options = visibleOptions();
+    if (options.length === 0) {
+      await sleep(600);
+      options = visibleOptions();
+    }
+    if (options.length === 0) throw new Error('El selector no mostró opciones.');
+    const { match, labels } = pickByLabel(options, query);
+    if (!match) throw noOptionError(option, labels);
+    highlightEl(match);
+    await sleep(250);
+    match.click();
+    await sleep(450);
+    return;
   }
-  let options = visibleOptions();
-  if (options.length === 0) {
-    await sleep(600);
-    options = visibleOptions();
+
+  // Buscador async: tipear el texto completo y, si no aparece nada, reintentar
+  // con prefijos cada vez más cortos (como un humano: "Rocco Labrador" → "Rocco").
+  // Muchos pickers filtran solo por nombre y no matchean el label completo.
+  const queries = [query];
+  if (query.includes(' ')) {
+    const words = query.split(/\s+/);
+    for (let n = words.length - 1; n >= 1; n--) queries.push(words.slice(0, n).join(' '));
+  }
+  let options: HTMLElement[] = [];
+  for (const q of queries) {
+    // eslint-disable-next-line no-await-in-loop -- reintento secuencial por diseño
+    options = await typeAndCollect(search, q);
+    if (options.length > 0) break;
   }
   if (options.length === 0) throw new Error('El selector no mostró opciones.');
-  const { match, labels } = pickByLabel(options, query);
-  if (!match) throw noOptionError(option, labels);
+
+  // Elegir SIN adivinar: la opción tiene que corresponder al query pedido.
+  const match = options.find((o) => optionMatches(o, query));
+  if (!match) throw noOptionError(option, options.map(optionLabel));
   highlightEl(match);
   await sleep(250);
   match.click();
