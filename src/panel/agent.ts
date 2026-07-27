@@ -91,6 +91,31 @@ async function chargeTask(level: IntelligenceLevel): Promise<boolean> {
   }
 }
 
+/**
+ * Motivo por el que el circuit breaker corta, o `null` si todavía no corta.
+ *
+ * Función pura: recibe los contadores YA actualizados y no toca el store. Vive
+ * afuera del loop porque, anidada, era un cuarto nivel de bloque (try → for →
+ * if → if) y ESLint la rechazaba por `max-depth`.
+ *
+ * El orden importa y replica el del ternario original: si la MISMA acción viene
+ * fallando, ese es el motivo aunque también se haya llegado al tope de fallas
+ * seguidas — es el diagnóstico más específico para el usuario.
+ */
+function breakerReason(
+  actionType: string,
+  sameFailures: number,
+  consecutiveFailures: number
+): string | null {
+  if (sameFailures >= MAX_SAME_ACTION_FAILURES) {
+    return `repetí una acción (${actionType}) que sigue fallando`;
+  }
+  if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+    return `acumulé ${consecutiveFailures} errores seguidos`;
+  }
+  return null;
+}
+
 export async function runAgent(goal: string, level: IntelligenceLevel): Promise<void> {
   copilotStore.clearAbort();
   copilotStore.setRunning(true);
@@ -166,31 +191,27 @@ export async function runAgent(goal: string, level: IntelligenceLevel): Promise<
 
       // Circuit breaker: si el modelo insiste con una acción que ya falla o se
       // traba acumulando errores, frenamos antes de gastar todo el saldo.
+      let breaker: string | null = null;
       if (actionError) {
         consecutiveFailures += 1;
         const key = JSON.stringify(turn.action);
         const sameFailures = (failuresByAction.get(key) ?? 0) + 1;
         failuresByAction.set(key, sameFailures);
-        if (
-          sameFailures >= MAX_SAME_ACTION_FAILURES ||
-          consecutiveFailures >= MAX_CONSECUTIVE_FAILURES
-        ) {
-          const reason =
-            sameFailures >= MAX_SAME_ACTION_FAILURES
-              ? `repetí una acción (${turn.action.type}) que sigue fallando`
-              : `acumulé ${consecutiveFailures} errores seguidos`;
-          copilotStore.addMessage(
-            'assistant',
-            'error',
-            `Me trabé: ${reason} y no logro avanzar. Frené para no gastar tu saldo en un bucle. ` +
-              'Probá reformular el pedido, o hacé el paso a mano y pedime seguir desde ahí.'
-          );
-          copilotStore.addConversationEntry(goal, `No se completó: ${reason}.`);
-          copilotStore.setStatus('error');
-          return;
-        }
+        breaker = breakerReason(turn.action.type, sameFailures, consecutiveFailures);
       } else {
         consecutiveFailures = 0;
+      }
+
+      if (breaker) {
+        copilotStore.addMessage(
+          'assistant',
+          'error',
+          `Me trabé: ${breaker} y no logro avanzar. Frené para no gastar tu saldo en un bucle. ` +
+            'Probá reformular el pedido, o hacé el paso a mano y pedime seguir desde ahí.'
+        );
+        copilotStore.addConversationEntry(goal, `No se completó: ${breaker}.`);
+        copilotStore.setStatus('error');
+        return;
       }
 
       await new Promise((r) => setTimeout(r, STEP_PAUSE_MS));

@@ -1,1 +1,40 @@
-npm run quality
+#!/usr/bin/env sh
+# Valida SOLO los archivos staged, no el repositorio entero.
+#
+# Antes esto era `npm run quality`, que corre format:check + lint sobre todo
+# `src/`. Con eso cualquier problema preexistente en un archivo ajeno bloqueaba
+# cualquier commit — tocabas una línea y te frenaba la deuda de otro. La salida
+# tentadora era `--no-verify`, justo lo que no queremos. En Windows además se
+# volvía un huevo-y-gallina: al agregar `.gitattributes` el commit se rechazaba
+# por los CRLF que ese mismo commit venía a arreglar.
+#
+# El typecheck NO va acá: es global por naturaleza (un cambio en A.ts rompe
+# B.ts) y filtrarlo por archivo daría falsos negativos. Queda en el pre-push,
+# que corre `npm run quality` completo + build antes de que nada salga de la
+# máquina — la red de repo entero sigue estando, solo corrida en el momento
+# correcto.
+#
+# Sin `--write` ni `--fix` a propósito: reescribir archivos durante el commit
+# deja staged algo distinto de lo que revisaste, y `eslint --fix` ya borró
+# aserciones de tipo necesarias en este repo (COONG-242).
+
+FILES=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '^src/.*\.(ts|tsx)$' || true)
+
+[ -z "$FILES" ] && exit 0
+
+echo "🔍 Validando archivos staged..."
+
+echo "$FILES" | xargs npx prettier --check || {
+  echo ""
+  echo "❌ Formato incorrecto. Corregilo con:"
+  echo "   npx prettier --write <archivos>"
+  exit 1
+}
+
+echo "$FILES" | xargs npx eslint || {
+  echo ""
+  echo "❌ Lint falló en los archivos staged."
+  exit 1
+}
+
+echo "✅ Archivos staged OK"
