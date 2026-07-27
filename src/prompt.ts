@@ -71,16 +71,20 @@ function renderControl(c: ScreenControl): string {
   return parts.join(' ');
 }
 
+/** Menús navegables (los que tienen viewId; el resto no se puede abrir). */
+function renderMenus(menus: ObservedScreen['menus']): string[] {
+  const navegables = menus.filter((m) => m.viewId);
+  if (navegables.length === 0) return [];
+  return ['\nMENÚS (navigate):', ...navegables.map((m) => `  - ${m.path} → viewId: ${m.viewId}`)];
+}
+
 function renderScreen(screen: ObservedScreen): string {
   const lines: string[] = [];
   lines.push(
     `Vista activa: ${screen.viewTitle ?? '(inicio)'} (viewId: ${screen.activeViewId ?? 'none'}, capa: ${screen.layer})`
   );
 
-  if (screen.menus.length > 0) {
-    lines.push('\nMENÚS (navigate):');
-    for (const m of screen.menus) if (m.viewId) lines.push(`  - ${m.path} → viewId: ${m.viewId}`);
-  }
+  lines.push(...renderMenus(screen.menus));
 
   // Separar por región: los filtros y las acciones de fila se listan aparte para
   // que el modelo no confunda un filtro con un campo de formulario (ver observador).
@@ -107,12 +111,26 @@ function renderScreen(screen: ObservedScreen): string {
 
   for (const table of screen.tables) lines.push(...renderTable(table));
 
+  lines.push(...renderFigures(screen.figures));
+
   if (screen.notices?.length) {
     lines.push('\nAVISOS RECIENTES (toasts de los últimos segundos — feedback de tus acciones):');
     for (const n of screen.notices) lines.push(`  - ${n}`);
   }
 
   return lines.join('\n');
+}
+
+/**
+ * Gráficos visibles. Son informativos: se listan para que el modelo pueda
+ * RESPONDER sobre lo que el usuario está mirando, no para que intente operarlos.
+ */
+function renderFigures(figures: ObservedScreen['figures']): string[] {
+  if (!figures?.length) return [];
+  return [
+    '\nGRÁFICOS (datos que el usuario está viendo; son informativos: no se clickean ni se editan):',
+    ...figures.map((f) => `  - ${f.name}: ${f.description}`),
+  ];
 }
 
 function renderTable(table: ObservedScreen['tables'][number]): string[] {
