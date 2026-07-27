@@ -112,3 +112,24 @@ Los toasts (Sonner, `[data-sonner-toast]`) duran segundos y el agente observa DE
 ### 2026-07-07 — `<details>/<summary>` nativo (COONG-231)
 
 Hallado por `audit_copilot` del View Builder: el contenedor Plegable del Builder genera `<details>/<summary>` sin `aria-expanded`, familia que el reader no soportaba → los Plegables eran invisibles e inoperables para el copiloto. Fix: `readExpandables` lee `details > summary` (estado desde `details.open`) e `isExpandedNow` del actuador lo opera (el click en summary togglea nativo).
+
+### 2026-07-27 — Gráficos: canal `figures` (COONG-271)
+
+Los gráficos del design system (`BarChart`, `LineChart`, `DonutChart`, `TrendCard`) se anuncian
+correctamente como `role="img"` con un `aria-label` que enumera la serie — y aun así el copiloto era
+**ciego** a ellos: `observe()` solo tenía canales para controles, tablas, toasts y menús, así que
+parado en un tablero el agente no podía responder "¿cuánto vendí este mes?".
+
+Medido antes del fix: con tres gráficos montados, `observe().controls` traía el botón de prueba y
+ningún gráfico; los tres `[role="img"]` estaban en el DOM con su descripción completa.
+
+- `readFigures()` recorre `[role="img"]` visibles del scope y emite `{ name, description }` partiendo
+  el nombre accesible por el primer `": "` (convención del DS: «Gráfico de barras: Ene $32, …»).
+  Topes: 12 figuras por pantalla y 400 caracteres por descripción — un tablero grande no debe inflar
+  el prompt.
+- `ObservedScreen.figures` (contrato en `src/types.ts` y `src/panel/types.ts`); el prompt las renderiza
+  como "GRÁFICOS", aclarando que son informativos (no se clickean ni se editan).
+- Como el nombre accesible se recalcula en cada `observe()`, un gráfico que recarga por RPC se lee
+  actualizado en la foto siguiente. Los gráficos del core reportan «cargando datos…» mientras el RPC
+  está pendiente en vez de describir la serie de diseño: si no, el agente reportaría datos de relleno
+  como si fueran reales.

@@ -25,6 +25,7 @@ import type {
   MenuItem,
   ObservedScreen,
   ScreenControl,
+  ScreenFigure,
   ScreenLayer,
   ScreenTable,
 } from './types.js';
@@ -51,6 +52,10 @@ const SEL = {
 const SKIP_INPUT_TYPES = new Set(['hidden', 'checkbox', 'radio', 'submit', 'button', 'file']);
 
 const MAX_TABLE_ROWS = 15;
+/** Tope de figuras por pantalla: un tablero con 20 gráficos no debe inflar el prompt. */
+const MAX_FIGURES = 12;
+/** Tope de caracteres por figura: una serie larga se recorta, no se omite. */
+const MAX_FIGURE_CHARS = 400;
 
 // --- Menús (cache corta) ---
 
@@ -492,6 +497,32 @@ function readTables(ctx: Ctx): ScreenTable[] {
   return tables;
 }
 
+/**
+ * Figuras: contenido gráfico anunciado como `role="img"` (gráficos de barras,
+ * líneas, donas…). No son controles ni tablas, pero SON los datos que el
+ * usuario está mirando: sin esto el agente no puede responder «cuánto vendí
+ * este mes» parado sobre un tablero.
+ *
+ * Se lee el nombre accesible en cada observe(), así que refleja el estado
+ * ACTUAL — cuando el gráfico recarga sus datos, la próxima lectura los trae.
+ */
+function readFigures(ctx: Ctx): ScreenFigure[] {
+  const figures: ScreenFigure[] = [];
+  ctx.scope.querySelectorAll<HTMLElement>('[role="img"]').forEach((el) => {
+    if (figures.length >= MAX_FIGURES) return;
+    if (!isVisible(el)) return;
+    const text = clean(computeAccessibleName(el));
+    if (!text) return;
+    // Convención de los gráficos del DS: «Tipo de gráfico: serie…». Partimos en
+    // nombre + datos para que el prompt los muestre separados.
+    const cut = text.indexOf(': ');
+    const name = cut > 0 ? text.slice(0, cut) : 'Figura';
+    const description = cut > 0 ? text.slice(cut + 2) : text;
+    figures.push({ name, description: description.slice(0, MAX_FIGURE_CHARS) });
+  });
+  return figures;
+}
+
 function clearRefs(): void {
   document.querySelectorAll(`[${AI_REF_ATTR}]`).forEach((el) => {
     el.removeAttribute(AI_REF_ATTR);
@@ -525,6 +556,7 @@ export async function observe(): Promise<ObservedScreen> {
   readExpandables(ctx);
   readButtons(ctx);
   const tables = readTables(ctx);
+  const figures = readFigures(ctx);
 
   const activeViewId = getActiveViewId();
   return {
@@ -535,5 +567,6 @@ export async function observe(): Promise<ObservedScreen> {
     controls: ctx.controls,
     tables,
     notices: recentNotices(),
+    figures,
   };
 }

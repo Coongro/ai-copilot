@@ -59,6 +59,13 @@ export interface ScreenTable {
   truncated?: boolean;
 }
 
+export interface ScreenFigure {
+  /** Qué representa la figura (ej. «Gráfico de barras», «Gráfico de dona»). */
+  name: string;
+  /** Los datos que la figura muestra, en texto (ej. «Ene $32, Feb $58»). */
+  description: string;
+}
+
 export interface ObservedScreen {
   activeViewId: string | null;
   viewTitle: string | null;
@@ -69,6 +76,11 @@ export interface ObservedScreen {
   tables: ScreenTable[];
   /** Toasts recientes (últimos 30 s): feedback efímero que el agente no llegaría a ver. */
   notices: string[];
+  /**
+   * Contenido gráfico visible (role="img"): gráficos y figuras que no son ni
+   * control ni tabla. Sin esto el agente es CIEGO a los datos de un tablero.
+   */
+  figures: ScreenFigure[];
 }
 
 export type AgentAction =
