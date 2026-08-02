@@ -14,15 +14,14 @@
 
 import type { PlatformAPI, TenantCapability } from '../endpoints/_context.js';
 
-import {
-  authenticate,
-  touchConnection,
-  isConnectionProfile,
-  type AuthenticatedConnection,
-} from './connections.js';
+import { recordAudit } from './audit.js';
+import { confirmationSummary, issueConfirmation, redeemConfirmation } from './confirmation.js';
+import { authenticate, touchConnection, type AuthenticatedConnection } from './connections.js';
 import { checkRateLimit, idempotencyKey, recallExecution, rememberExecution } from './limits.js';
+import { applyPolicy, confirmationRequired, policyFor } from './policy.js';
 import { renderResult } from './render.js';
-import { capabilitiesFor, indexByToolName, toTool } from './tools.js';
+import { resolveRefArgs } from './resource-ref.js';
+import { indexByToolName, toTool } from './tools.js';
 import { applySchemaValues, validateArgs } from './validate.js';
 
 /** Última versión del protocolo que este servidor implementa. */
@@ -147,12 +146,6 @@ function initializeResult(params: Record<string, unknown> | undefined): unknown 
   };
 }
 
-function profileOf(connection: AuthenticatedConnection) {
-  return isConnectionProfile(connection.connection.profile)
-    ? connection.connection.profile
-    : 'readonly';
-}
-
 async function resolveCapabilities(
   connection: AuthenticatedConnection,
   platform: PlatformAPI
@@ -163,8 +156,11 @@ async function resolveCapabilities(
     connection.tenantId,
     connection.connection.kit_id
   );
+  // Perfil (efectos) + allow/deny de la política de la conexión: el mismo
+  // catálogo compilado, filtrado por lo que ESTA conexión puede usar.
+  const policy = policyFor(connection.connection);
   return {
-    capabilities: capabilitiesFor(catalog.capabilities, profileOf(connection)),
+    capabilities: applyPolicy(catalog.capabilities, policy),
     revision: catalog.revision,
   };
 }
@@ -201,14 +197,48 @@ async function callTool(
     );
   }
 
-  const normalizedArgs = applySchemaValues(capability.inputSchema, requestedArgs);
+  // El token de confirmación es un argumento RESERVADO del protocolo, no del
+  // contrato: se separa antes de validar contra el schema.
+  const { confirmationToken, ...bareArgs } = requestedArgs;
+
+  const normalizedArgs = applySchemaValues(capability.inputSchema, bareArgs);
   const invalid = validateArgs(capability.inputSchema, normalizedArgs);
   if (invalid) return toolError(id, invalid);
-  const args = effectiveArgs(capability, normalizedArgs);
+
+  // Referencias nominales: un handle `recurso:id` se valida y se resuelve al
+  // id crudo; una referencia de OTRO recurso se corta acá con mensaje útil.
+  const refs = resolveRefArgs(capability.inputSchema, normalizedArgs);
+  if (refs.errors.length) {
+    recordAudit(auditBase(connection, capability, 'rejected', refs.errors.join('; ')));
+    return toolError(id, refs.errors.join('\n'));
+  }
+  const args = effectiveArgs(capability, refs.args);
 
   const isWrite = capability.effect !== 'read';
   const limit = checkRateLimit(connection.connection.id, isWrite);
   if (!limit.allowed) return toolError(id, limit.message ?? 'Límite de uso alcanzado.');
+
+  // Confirmación server-side: la primera llamada de una operación que la exige
+  // no ejecuta nada — devuelve el resumen y un token de un solo uso. Ejecutar
+  // requiere repetir la llamada con `confirmationToken` y los MISMOS args.
+  const policy = policyFor(connection.connection);
+  if (confirmationRequired(capability, policy)) {
+    if (!redeemConfirmation(confirmationToken, connection.connection.id, capability.id, args)) {
+      const token = issueConfirmation(connection.connection.id, capability.id, args);
+      const summary = confirmationSummary(capability.title, args);
+      recordAudit(auditBase(connection, capability, 'confirmation_required'));
+      return ok(id, {
+        content: [
+          {
+            type: 'text',
+            text: `Confirmación requerida: ${summary}\nRepetí la llamada con confirmationToken para ejecutar.`,
+          },
+        ],
+        structuredContent: { status: 'confirmation_required', summary, confirmationToken: token },
+        isError: false,
+      });
+    }
+  }
 
   // Un reintento idéntico de una escritura devuelve el resultado anterior en
   // lugar de ejecutarla otra vez (ver `limits.ts`).
@@ -220,6 +250,7 @@ async function callTool(
 
   await touchConnection(connection.database, connection.connection.id);
 
+  const startedAt = Date.now();
   const result = await platform.executeAction(
     connection.tenantId,
     capability.action,
@@ -227,10 +258,18 @@ async function callTool(
     connection.connection.kit_id
   );
   if (!result.success) {
+    recordAudit({
+      ...auditBase(connection, capability, 'error', result.error ?? undefined),
+      durationMs: Date.now() - startedAt,
+    });
     // Los errores de la acción se devuelven como resultado con `isError`, no
     // como error de protocolo: así el modelo los ve y puede corregir.
     return toolError(id, result.error ?? 'La acción falló sin detalle.');
   }
+  recordAudit({
+    ...auditBase(connection, capability, 'ok'),
+    durationMs: Date.now() - startedAt,
+  });
 
   const rendered = await renderResult(result.data, {
     output: capability.output,
@@ -272,4 +311,21 @@ function effectiveArgs(
 
 function toolError(id: string | number | null, message: string): JsonRpcResponse {
   return ok(id, { content: [{ type: 'text', text: message }], isError: true });
+}
+
+function auditBase(
+  connection: AuthenticatedConnection,
+  capability: TenantCapability,
+  outcome: 'ok' | 'error' | 'rejected' | 'confirmation_required',
+  detail?: string
+) {
+  return {
+    connectionId: connection.connection.id,
+    tenantId: connection.tenantId,
+    capabilityId: capability.id,
+    action: capability.action,
+    effect: capability.effect,
+    outcome,
+    ...(detail ? { detail } : {}),
+  };
 }
