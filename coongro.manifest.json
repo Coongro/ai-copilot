@@ -7,9 +7,36 @@
   "runtime": "eager",
   "entry": "./dist/entry.js",
   "contributes": {
-    "menus": [],
-    "views": [],
-    "repositories": [],
+    "menus": [
+      {
+        "path": "Agentes IA",
+        "viewId": "ai-copilot.conexiones-de-agentes.open",
+        "icon": "Bot",
+        "order": 90
+      }
+    ],
+    "views": [
+      {
+        "id": "ai-copilot.nueva-conexion.open",
+        "title": "Nueva conexión",
+        "component": "./dist/views/nueva-conexion/index.js",
+        "export": "NuevaConexionView"
+      },
+      {
+        "id": "ai-copilot.conexiones-de-agentes.open",
+        "title": "Conexiones de agentes",
+        "component": "./dist/views/conexiones-de-agentes/index.js",
+        "export": "ConexionesDeAgentesView"
+      }
+    ],
+    "repositories": [
+      {
+        "module": "./dist/repositories/agent-connection.repository.js",
+        "export": "ConnectionRepository",
+        "prefix": "ai-copilot.connections",
+        "copilot": false
+      }
+    ],
     "utilityActions": [
       {
         "id": "ai-copilot.chat",
@@ -31,6 +58,22 @@
         "auth": "jwt"
       },
       {
+        "id": "mcp",
+        "path": "/mcp",
+        "method": "POST",
+        "handler": "./dist/endpoints/mcp.js",
+        "export": "mcp",
+        "auth": "none"
+      },
+      {
+        "id": "connections-context",
+        "path": "/connections/context",
+        "method": "GET",
+        "handler": "./dist/endpoints/connections.js",
+        "export": "context",
+        "auth": "jwt"
+      },
+      {
         "id": "config-prompt-get",
         "path": "/config/prompt",
         "method": "GET",
@@ -46,6 +89,7 @@
         "export": "setPrompt",
         "auth": "none"
       }
-    ]
+    ],
+    "copilotCapabilities": []
   }
 }

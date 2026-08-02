@@ -1,0 +1,207 @@
+{
+  "specVersion": 1,
+  "kind": "crud",
+  "title": "Conexiones de agentes",
+  "slug": "conexiones-de-agentes",
+  "data": {
+    "repositoryPrefix": "ai-copilot.connections"
+  },
+  "blocks": [
+    {
+      "id": "hdr",
+      "kind": "component",
+      "comp": "PageHeader",
+      "props": {
+        "kicker": "Asistente IA",
+        "kickerTone": "brand",
+        "title": "Conexiones de agentes",
+        "subtitle": "Conectá Claude, ChatGPT o Codex a tu Coongro. Cada conexión ve solo lo que habilitan sus permisos.",
+        "actionLabel": "Nueva conexión",
+        "action": {
+          "id": "openForm",
+          "label": "Nueva conexión",
+          "target": "ai-copilot.nueva-conexion.open"
+        }
+      }
+    },
+    {
+      "id": "tabla",
+      "kind": "component",
+      "comp": "DataTable",
+      "props": {
+        "source": "ai-copilot.connections",
+        "columns": [
+          {
+            "key": "name",
+            "label": "Conexión"
+          },
+          {
+            "key": "profile",
+            "label": "Permisos",
+            "display": "pill",
+            "values": [
+              {
+                "value": "readonly",
+                "label": "Solo consulta",
+                "icon": "Eye",
+                "tone": "neutral"
+              },
+              {
+                "value": "operator",
+                "label": "Consulta y opera",
+                "icon": "Pencil",
+                "tone": "warning"
+              },
+              {
+                "value": "admin",
+                "label": "Sin restricción",
+                "icon": "ShieldAlert",
+                "tone": "danger"
+              }
+            ]
+          },
+          {
+            "key": "enabled",
+            "label": "Estado",
+            "display": "pill",
+            "values": [
+              {
+                "value": "true",
+                "label": "Activa",
+                "tone": "success"
+              },
+              {
+                "value": "false",
+                "label": "Revocada",
+                "tone": "neutral"
+              }
+            ]
+          },
+          {
+            "key": "last_used_at",
+            "label": "Último uso",
+            "format": "datetime",
+            "emptyLabel": "Nunca"
+          },
+          {
+            "key": "expires_at",
+            "label": "Vence",
+            "format": "date"
+          },
+          {
+            "key": "kit_id",
+            "label": "Alcance",
+            "visible": false,
+            "emptyLabel": "Todo el espacio"
+          },
+          {
+            "key": "token_hint",
+            "label": "Fin del token",
+            "visible": false,
+            "display": "mono"
+          }
+        ],
+        "expandable": true,
+        "filters": [
+          {
+            "column": "enabled",
+            "label": "Estado",
+            "kind": "select",
+            "options": [
+              "Activa",
+              "Revocada"
+            ],
+            "default": "true"
+          },
+          {
+            "column": "profile",
+            "label": "Permisos",
+            "kind": "select",
+            "options": [
+              "Solo consulta",
+              "Consulta y opera",
+              "Sin restricción"
+            ]
+          }
+        ],
+        "actions": [
+          {
+            "label": "Revocar",
+            "icon": "Ban",
+            "variant": "destructive",
+            "showWhenColumn": "enabled",
+            "showWhenValues": "true"
+          },
+          {
+            "label": "Reactivar",
+            "icon": "RotateCcw",
+            "showWhenColumn": "enabled",
+            "showWhenValues": "false"
+          },
+          {
+            "label": "Eliminar",
+            "icon": "Trash2",
+            "variant": "destructive"
+          }
+        ],
+        "cells": [
+          [
+            "Claude de Lucía",
+            {
+              "badge": "Consulta y opera",
+              "tone": "warning"
+            },
+            {
+              "badge": "Activa",
+              "tone": "success"
+            },
+            "2026-07-31T14:32:00",
+            "2026-10-29",
+            "Alquileres",
+            {
+              "mono": "f2abb8"
+            }
+          ],
+          [
+            "ChatGPT recepción",
+            {
+              "badge": "Solo consulta",
+              "tone": "neutral"
+            },
+            {
+              "badge": "Activa",
+              "tone": "success"
+            },
+            "2026-07-28T09:12:00",
+            "2026-09-12",
+            "Alquileres",
+            {
+              "mono": "9d31c0"
+            }
+          ],
+          [
+            "Codex — pruebas",
+            {
+              "badge": "Sin restricción",
+              "tone": "danger"
+            },
+            {
+              "badge": "Revocada",
+              "tone": "neutral"
+            },
+            "Nunca",
+            "2026-08-30",
+            "Todo el espacio",
+            {
+              "mono": "4b1a77"
+            }
+          ]
+        ],
+        "emptyTitle": "Todavía no hay conexiones",
+        "emptySub": "Generá una y pegá su URL en Claude o ChatGPT para que trabajen con tus datos.",
+        "mobile": "cards",
+        "pageSize": "20"
+      }
+    }
+  ]
+}

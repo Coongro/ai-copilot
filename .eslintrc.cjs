@@ -96,7 +96,12 @@ module.exports = {
     // que no esta disponible en el tsconfig del plugin (se carga en runtime desde el host).
     // Los tipos del SDK retornan 'error' type, causando falsos positivos en no-unsafe-*.
     {
-      files: ['src/views/**/*.tsx', 'src/components/**/*.tsx', 'src/contributions/**/*.tsx'],
+      files: [
+        // Incluye .ts: las vistas generadas por el Builder emiten h(UI.X) (no JSX) en .ts.
+        'src/views/**/*.{ts,tsx}',
+        'src/components/**/*.{ts,tsx}',
+        'src/contributions/**/*.{ts,tsx}',
+      ],
       rules: {
         '@typescript-eslint/no-unsafe-member-access': 'off',
         '@typescript-eslint/no-unsafe-assignment': 'off',

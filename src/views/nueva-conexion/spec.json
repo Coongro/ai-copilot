@@ -1,0 +1,69 @@
+{
+  "specVersion": 1,
+  "kind": "form",
+  "title": "Nueva conexión",
+  "slug": "nueva-conexion",
+  "blocks": [
+    {
+      "id": "card",
+      "kind": "container",
+      "ctype": "card",
+      "label": "Datos de la conexión",
+      "icon": "Plug",
+      "layout": {
+        "dir": "col",
+        "gap": "md",
+        "pad": "lg"
+      },
+      "children": [
+        {
+          "id": "f_name",
+          "kind": "field",
+          "name": "name",
+          "fieldType": "text",
+          "label": "Nombre",
+          "validations": [
+            "required"
+          ],
+          "width": "full",
+          "placeholder": "Ej: Claude de Lucía",
+          "help": "Sirve para reconocer después quién usa esta conexión."
+        },
+        {
+          "id": "f_profile",
+          "kind": "field",
+          "name": "profile",
+          "fieldType": "enum",
+          "label": "Permisos",
+          "validations": [
+            "required"
+          ],
+          "width": "full",
+          "options": [
+            "Solo consulta",
+            "Consulta y opera",
+            "Sin restricción"
+          ],
+          "help": "Solo consulta no modifica nada. Sin restricción también puede eliminar registros. El agente igual pide confirmación antes de cada cambio."
+        },
+        {
+          "id": "secreto",
+          "kind": "component",
+          "comp": "SecretReveal",
+          "props": {
+            "buttonLabel": "Generar enlace",
+            "label": "Enlace para el cliente",
+            "warning": "Copialo ahora: por seguridad no se vuelve a mostrar.",
+            "copyLabel": "Copiar",
+            "valueKey": "url",
+            "action": {
+              "id": "serverAction",
+              "label": "Generar enlace",
+              "target": "ai-copilot.connections.create"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

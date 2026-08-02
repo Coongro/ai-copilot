@@ -1,0 +1,1 @@
+ALTER TABLE "module_ai_copilot_agent_connections" ADD COLUMN "kit_id" text;
