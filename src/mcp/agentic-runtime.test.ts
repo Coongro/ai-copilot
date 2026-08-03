@@ -145,6 +145,47 @@ describe('resource-ref', () => {
 });
 
 describe('confirmación server-side', () => {
+  // Regresión: el ciclo funcionaba leyendo el token de `structuredContent`, pero un
+  // agente real solo puede usar lo que el CONTRATO le permite. Sin `confirmationToken`
+  // en el inputSchema —y con `additionalProperties: false`— no tenía por dónde
+  // mandarlo, así que ninguna escritura podía completarse por MCP.
+  it('el contrato público deja llegar el token: declarado en las escrituras y a la vista en el texto', async () => {
+    const { platform } = makePlatform();
+
+    const list = await call({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }, platform);
+    interface ListedTool {
+      name: string;
+      inputSchema: {
+        properties?: Record<string, unknown>;
+        required?: string[];
+      };
+    }
+    const tools = (list.result as { tools: ListedTool[] }).tools;
+
+    const write = tools.find((tool) => tool.name === 'leases_contracts_create');
+    expect(write?.inputSchema.properties?.confirmationToken).toBeTruthy();
+    // Opcional: la PRIMERA llamada es la que pide la confirmación y va sin token.
+    expect(write?.inputSchema.required ?? []).not.toContain('confirmationToken');
+
+    // Una lectura nunca confirma: no le ensuciamos el schema.
+    const read = tools.find((tool) => tool.name !== 'leases_contracts_create');
+    expect(read?.inputSchema.properties?.confirmationToken).toBeUndefined();
+
+    const first = await call(
+      toolsCall('leases_contracts_create', {
+        unitRef: 'properties.units:01JUNIT',
+        startDate: '2026-08-01',
+      }),
+      platform
+    );
+    const result = first.result as ToolResult;
+    const token = result.structuredContent?.confirmationToken ?? '';
+    expect(token).toBeTruthy();
+    // El valor tiene que estar en el texto: no todos los clientes exponen el
+    // structuredContent al modelo.
+    expect(result.content[0].text).toContain(token);
+  });
+
   it('la primera llamada no ejecuta: devuelve resumen y token; la segunda ejecuta', async () => {
     const { platform, executeAction } = makePlatform();
     const args = { unitRef: 'properties.units:01JUNIT', startDate: '2026-08-01' };

@@ -42,7 +42,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "@coongro/openrouter": ">=1.0.0"
+    "@coongro/openrouter": "workspace:*"
   },
   "peerDependencies": {
     "@coongro/plugin-sdk": ">=0.1.0"

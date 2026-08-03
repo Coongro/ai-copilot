@@ -231,7 +231,10 @@ async function callTool(
         content: [
           {
             type: 'text',
-            text: `Confirmación requerida: ${summary}\nRepetí la llamada con confirmationToken para ejecutar.`,
+            // El token va en el TEXTO además de en `structuredContent`: no todos
+            // los clientes MCP le muestran el structured al modelo, y sin el valor
+            // a la vista la confirmación es imposible de completar.
+            text: `Confirmación requerida: ${summary}\nSi la persona confirma, repetí exactamente la misma llamada agregando confirmationToken: "${token}".`,
           },
         ],
         structuredContent: { status: 'confirmation_required', summary, confirmationToken: token },

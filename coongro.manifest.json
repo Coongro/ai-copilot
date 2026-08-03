@@ -34,7 +34,13 @@
         "module": "./dist/repositories/agent-connection.repository.js",
         "export": "ConnectionRepository",
         "prefix": "ai-copilot.connections",
-        "copilot": false
+        "copilot": false,
+        "actions": [
+          "list",
+          "create",
+          "setEnabled",
+          "delete"
+        ]
       }
     ],
     "utilityActions": [
@@ -87,6 +93,22 @@
         "method": "PUT",
         "handler": "./dist/endpoints/config-prompt.js",
         "export": "setPrompt",
+        "auth": "none"
+      },
+      {
+        "id": "developer-structured-status",
+        "path": "/developer/structured",
+        "method": "GET",
+        "handler": "./dist/endpoints/developer-structured.js",
+        "export": "developerStructuredStatus",
+        "auth": "none"
+      },
+      {
+        "id": "developer-structured",
+        "path": "/developer/structured",
+        "method": "POST",
+        "handler": "./dist/endpoints/developer-structured.js",
+        "export": "developerStructured",
         "auth": "none"
       }
     ],
