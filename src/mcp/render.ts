@@ -27,6 +27,13 @@ export interface RenderResultOptions {
   output?: CapabilityOutput;
   args?: Record<string, unknown>;
   resolveReference?: (action: string, id: string) => Promise<unknown>;
+  /**
+   * Prefijo del recurso al que pertenecen las filas (`properties.buildings`).
+   * Con esto la referencia se emite como handle nominal `recurso:id`, que es
+   * lo que un input `ref` acepta — un id pelado obliga al agente a adivinar de
+   * qué recurso era.
+   */
+  resource?: string;
 }
 
 export async function renderResult(
@@ -40,8 +47,18 @@ export async function renderResult(
     const rendered = await renderCollection(data, options.output, options);
     if (rendered) return rendered;
   }
-  if (options.output?.kind === 'record' && isRecord(data)) {
-    return renderRecord(data, options.output, options);
+  if (options.output?.kind === 'record') {
+    // Un repositorio Drizzle devuelve `.returning()`, o sea un ARRAY de una
+    // fila. Al exigir un objeto, la proyección no se aplicaba y la respuesta
+    // caía al volcado JSON crudo: el agente veía `deleted_at`, `is_active` y
+    // los ids internos de una fila que el contrato decía proyectar. goal.md
+    // §16 lo prohíbe explícitamente («sin campos internos»).
+    const record = isRecord(data)
+      ? data
+      : Array.isArray(data) && isRecord(data[0])
+        ? data[0]
+        : null;
+    if (record) return renderRecord(record, options.output, options);
   }
   if (typeof data === 'string') return clampText(data, data, false);
 
@@ -81,7 +98,7 @@ async function renderCollection(
   const envelope = pageEnvelope(data);
   if (!envelope) return null;
   const page = collectionWindow(data, envelope, output, options.args);
-  const projector = createProjector(output, options.resolveReference);
+  const projector = createProjector(output, options.resolveReference, options.resource);
   const rawProjected = await Promise.all(
     page.rows.filter(isRecord).map((row) => projector.project(row))
   );
@@ -155,13 +172,18 @@ async function renderRecord(
   output: CapabilityOutput,
   options: RenderResultOptions
 ): Promise<RenderedResult> {
-  const projected = await createProjector(output, options.resolveReference).project(row);
+  const projected = await createProjector(
+    output,
+    options.resolveReference,
+    options.resource
+  ).project(row);
   return clampText(projected.text || 'Registro sin datos visibles.', projected.data, false);
 }
 
 function createProjector(
   output: CapabilityOutput,
-  resolveReference?: RenderResultOptions['resolveReference']
+  resolveReference?: RenderResultOptions['resolveReference'],
+  resource?: string
 ) {
   const cache = new Map<string, Promise<unknown>>();
   let lookups = 0;
@@ -187,7 +209,13 @@ function createProjector(
       const data: Record<string, unknown> = {};
       const text: string[] = [];
       const identifier = output.identifierKey ? row[output.identifierKey] : undefined;
-      if (identifier !== undefined && identifier !== null) data._ref = String(identifier);
+      const handle =
+        identifier === undefined || identifier === null
+          ? null
+          : resource
+            ? `${resource}:${String(identifier)}`
+            : String(identifier);
+      if (handle) data._ref = handle;
       for (const field of output.fields) {
         const resolved = await resolve(field, row[field.key]);
         const formatted = formatValue(resolved, field);
@@ -195,6 +223,11 @@ function createProjector(
         data[field.name] = formatted;
         text.push(`${field.label}: ${formatted}`);
       }
+      // La referencia va TAMBIÉN en el texto visible (goal.md §12). Estaba solo
+      // en `structuredContent`, y no todos los clientes MCP se lo muestran al
+      // modelo: el agente veía el edificio, no su id, y no podía crear nada
+      // colgado de él. Mismo agujero que tuvo el confirmationToken.
+      if (handle) text.push(`Referencia: ${handle}`);
       return { data, text: text.join(' · ') };
     },
   };
