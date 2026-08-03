@@ -50,7 +50,11 @@ export function toTool(capability: TenantCapability): McpTool {
     name: toToolName(capability.id),
     title: capability.title,
     description: describe(capability),
-    inputSchema: publicInputSchema(capability.inputSchema),
+    // Las escrituras pueden pedir confirmación, y confirmar es repetir la llamada
+    // con el token que devolvió la primera. Si el schema no lo declara, el agente
+    // no tiene por dónde mandarlo —`additionalProperties: false` se lo prohíbe— y
+    // la operación queda imposible de completar.
+    inputSchema: publicInputSchema(capability.inputSchema, capability.effect !== 'read'),
     annotations: {
       title: capability.title,
       readOnlyHint: capability.effect === 'read',
@@ -64,7 +68,10 @@ export function toTool(capability: TenantCapability): McpTool {
  * cliente ni deben ocupar contexto. Se eliminan del schema público, pero el
  * protocolo conserva el schema original y los inyecta antes de ejecutar.
  */
-function publicInputSchema(schema: Record<string, unknown>): Record<string, unknown> {
+function publicInputSchema(
+  schema: Record<string, unknown>,
+  acceptsConfirmation = false
+): Record<string, unknown> {
   const visit = (node: Record<string, unknown>): Record<string, unknown> | null => {
     if (node.const !== undefined) return null;
     const result = { ...node };
@@ -83,7 +90,24 @@ function publicInputSchema(schema: Record<string, unknown>): Record<string, unkn
     }
     return result;
   };
-  return visit(schema) ?? { type: 'object', properties: {}, additionalProperties: false };
+  const result = visit(schema) ?? { type: 'object', properties: {}, additionalProperties: false };
+  if (!acceptsConfirmation) return result;
+
+  // Queda OPCIONAL a propósito: la primera llamada va sin token —es la que pide
+  // la confirmación— y solo la segunda lo lleva. Exponerlo no debilita nada: el
+  // token es de un solo uso y está atado al hash de los argumentos, así que
+  // conocerlo no permite ejecutar ninguna otra operación.
+  return {
+    ...result,
+    properties: {
+      ...((result.properties as Record<string, unknown>) ?? {}),
+      confirmationToken: {
+        type: 'string',
+        description:
+          'Solo para confirmar una operación ya propuesta. No lo inventes ni lo reutilices: lo devuelve la llamada anterior junto al resumen, vale una sola vez y deja de servir si cambiás cualquier argumento.',
+      },
+    },
+  };
 }
 
 /**

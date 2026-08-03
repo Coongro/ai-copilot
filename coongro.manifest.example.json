@@ -58,7 +58,14 @@
       {
         "module": "./dist/repositories/items.repository.js",
         "export": "ItemsRepository",
-        "prefix": "my-plugin.items"
+        "prefix": "my-plugin.items",
+        "actions": [
+          "list",
+          "getById",
+          "create",
+          "update",
+          "delete"
+        ]
       }
     ],
     "utilityActions": [
