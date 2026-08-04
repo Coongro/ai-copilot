@@ -45,7 +45,13 @@ describe('renderResult con contrato de salida', () => {
       'Inquilino: Martina Ruiz · Desde: 01/09/2025 · Alquiler: $ 485.000,50 · Estado: Vigente'
     );
     expect(result.text).not.toContain('tenant_id');
-    expect(result.text).not.toContain('8aec2a1d');
+    // La referencia SÍ va en el texto visible (goal.md §12): no todos los
+    // clientes MCP le muestran `structuredContent` al modelo, y sin el handle a
+    // la vista el agente ve el registro pero no puede encadenar nada con él —
+    // lista el edificio y después no puede crearle una unidad. Lo que no debe
+    // aparecer es el UUID como si fuera un campo del negocio, y por eso va
+    // etiquetado como «Referencia».
+    expect(result.text).toContain('Referencia: 8aec2a1d-e13b-47a0-a476-054bc5b3fb87');
     expect(result.data).toEqual({
       items: [
         {
@@ -107,5 +113,49 @@ describe('renderResult con contrato de salida', () => {
     expect(resolveReference).toHaveBeenCalledTimes(1);
     expect(result.text).toContain('Inquilino: Ana Pérez');
     expect(result.text).not.toContain('person-1');
+  });
+
+  it('proyecta un record aunque el repositorio devuelva un array de una fila', async () => {
+    // `.returning()` de Drizzle devuelve array. Exigir un objeto hacía que la
+    // proyección no se aplicara y el agente recibiera el volcado crudo con las
+    // columnas internas. Detectado por el agente ciego (COONG-293).
+    const output = {
+      kind: 'record' as const,
+      identifierKey: 'id',
+      fields: [{ key: 'name', name: 'name', label: 'Unidad' }],
+    };
+    const result = await renderResult(
+      [{ id: 'u-1', name: '1° A', deleted_at: null, is_active: true }],
+      {
+        output,
+        resource: 'properties.units',
+      }
+    );
+
+    expect(result.text).toContain('Unidad: 1° A');
+    expect(result.text).toContain('Referencia: properties.units:u-1');
+    expect(result.text).not.toContain('deleted_at');
+    expect(result.text).not.toContain('is_active');
+  });
+
+  it('emite la referencia como handle nominal cuando conoce el recurso', async () => {
+    // Un id pelado obliga al agente a adivinar de qué recurso era; el handle
+    // `recurso:id` es lo que un input `ref` acepta sin traducción. Detectado
+    // por el agente ciego (COONG-293): listaba el edificio, veía sus datos y
+    // no tenía con qué crearle una unidad.
+    const output = {
+      kind: 'collection' as const,
+      identifierKey: 'id',
+      fields: [{ key: 'name', name: 'name', label: 'Propiedad' }],
+    };
+    const result = await renderResult([{ id: 'bld-1', name: 'Belgrano 1240' }], {
+      output,
+      resource: 'properties.buildings',
+    });
+
+    expect(result.text).toContain('Referencia: properties.buildings:bld-1');
+    expect((result.data as { items: Array<{ _ref: string }> }).items[0]._ref).toBe(
+      'properties.buildings:bld-1'
+    );
   });
 });

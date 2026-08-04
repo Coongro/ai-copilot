@@ -277,6 +277,9 @@ async function callTool(
   const rendered = await renderResult(result.data, {
     output: capability.output,
     args,
+    // El recurso sale del id de la action: `properties.buildings.list` proyecta
+    // filas de `properties.buildings`.
+    resource: capability.action.split('.').slice(0, -1).join('.'),
     resolveReference: async (action, referenceId) => {
       if (!action.endsWith('.getById')) return undefined;
       const resolved = await platform.executeAction(connection.tenantId, action, {
