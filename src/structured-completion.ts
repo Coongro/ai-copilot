@@ -20,7 +20,17 @@ import {
 } from './openrouter-structured-gateway.js';
 
 const MAX_MESSAGES = 20;
-const MAX_PROMPT_CHARS = 80_000;
+/**
+ * Techo de gasto por llamada, no límite del modelo (que admite bastante más).
+ *
+ * Estaba en 80 000 y lo movió un caso concreto: el agente ciego le pasa al
+ * modelo el catálogo publicado del kit —86 capabilities, unos 70 000
+ * caracteres solo en definiciones— y con lo que el runtime le agrega a cada
+ * una (el `confirmationToken` de las escrituras, la paginación de las
+ * colecciones) quedaba apenas por encima. No es que sobrara margen: faltaba
+ * un 10 %.
+ */
+const MAX_PROMPT_CHARS = 150_000;
 const MAX_SCHEMA_CHARS = 60_000;
 const FAILURE_LIMIT = 3;
 const COOLDOWN_MS = 30_000;
