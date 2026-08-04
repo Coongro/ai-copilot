@@ -278,8 +278,9 @@ async function callTool(
     output: capability.output,
     args,
     // El recurso sale del id de la action: `properties.buildings.list` proyecta
-    // filas de `properties.buildings`.
-    resource: capability.action.split('.').slice(0, -1).join('.'),
+    // filas de `properties.buildings`. Salvo que el catálogo diga otra cosa:
+    // una operación puede devolver el id de un recurso ajeno al suyo.
+    resource: capability.output?.resource ?? capability.action.split('.').slice(0, -1).join('.'),
     resolveReference: async (action, referenceId) => {
       if (!action.endsWith('.getById')) return undefined;
       const resolved = await platform.executeAction(connection.tenantId, action, {

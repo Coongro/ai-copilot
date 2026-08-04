@@ -48,6 +48,13 @@ export interface CapabilityOutput {
   kind: 'collection' | 'record';
   fields: CapabilityOutputField[];
   identifierKey?: string;
+  /**
+   * Qué recurso identifican estas filas, cuando no es el prefijo de la action.
+   * `leases.contracts.saveTenant` vive bajo contratos y devuelve el id de un
+   * contacto: sin esto la referencia sale etiquetada como contrato y el
+   * siguiente paso la rechaza por ser de otro recurso.
+   */
+  resource?: string;
   defaultLimit?: number;
   maxLimit?: number;
 }
