@@ -158,4 +158,24 @@ describe('renderResult con contrato de salida', () => {
       'properties.buildings:bld-1'
     );
   });
+  it('el recurso del catálogo manda sobre el prefijo de la action', async () => {
+    // `leases.contracts.saveTenant` vive bajo contratos y devuelve el id de un
+    // CONTACTO. Etiquetarlo con el prefijo de su action le daba al agente una
+    // referencia que el paso siguiente rechazaba por ser de otro recurso —la
+    // referencia que la propia operación acababa de devolver.
+    const result = await renderResult(
+      { id: 'contact-9', name: 'Inquilino' },
+      {
+        output: {
+          kind: 'record' as const,
+          identifierKey: 'id',
+          resource: 'contacts',
+          fields: [{ key: 'name', name: 'name', label: 'Nombre' }],
+        },
+        resource: 'contacts',
+      }
+    );
+
+    expect((result.data as { _ref: string })._ref).toBe('contacts:contact-9');
+  });
 });
