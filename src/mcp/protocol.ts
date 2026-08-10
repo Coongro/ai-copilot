@@ -15,7 +15,13 @@
 import type { PlatformAPI, TenantCapability } from '../endpoints/_context.js';
 
 import { recordAudit } from './audit.js';
-import { confirmationSummary, issueConfirmation, redeemConfirmation } from './confirmation.js';
+import {
+  completeConfirmation,
+  confirmationSummary,
+  issueConfirmation,
+  redeemConfirmation,
+  releaseConfirmation,
+} from './confirmation.js';
 import { authenticate, touchConnection, type AuthenticatedConnection } from './connections.js';
 import { checkRateLimit, idempotencyKey, recallExecution, rememberExecution } from './limits.js';
 import { applyPolicy, confirmationRequired, policyFor } from './policy.js';
@@ -218,34 +224,21 @@ async function callTool(
   const limit = checkRateLimit(connection.connection.id, isWrite);
   if (!limit.allowed) return toolError(id, limit.message ?? 'Límite de uso alcanzado.');
 
-  // Confirmación server-side: la primera llamada de una operación que la exige
-  // no ejecuta nada — devuelve el resumen y un token de un solo uso. Ejecutar
-  // requiere repetir la llamada con `confirmationToken` y los MISMOS args.
-  const policy = policyFor(connection.connection);
-  if (confirmationRequired(capability, policy)) {
-    if (!redeemConfirmation(confirmationToken, connection.connection.id, capability.id, args)) {
-      const token = issueConfirmation(connection.connection.id, capability.id, args);
-      const summary = confirmationSummary(capability.title, args);
-      recordAudit(auditBase(connection, capability, 'confirmation_required'));
-      return ok(id, {
-        content: [
-          {
-            type: 'text',
-            // El token va en el TEXTO además de en `structuredContent`: no todos
-            // los clientes MCP le muestran el structured al modelo, y sin el valor
-            // a la vista la confirmación es imposible de completar.
-            text: `Confirmación requerida: ${summary}\nSi la persona confirma, repetí exactamente la misma llamada agregando confirmationToken: "${token}".`,
-          },
-        ],
-        structuredContent: { status: 'confirmation_required', summary, confirmationToken: token },
-        isError: false,
-      });
-    }
-  }
+  const gate = confirmationGate(id, connection, capability, args, confirmationToken);
+  if ('response' in gate) return gate.response;
+  /** Token redimido en ESTA llamada: la identidad del pedido, no la de sus datos. */
+  const grantedToken = gate.token;
 
-  // Un reintento idéntico de una escritura devuelve el resultado anterior en
-  // lugar de ejecutarla otra vez (ver `limits.ts`).
-  const key = isWrite ? idempotencyKey(connection.connection.id, capability.id, args) : null;
+  // Idempotencia por HASH DE ARGUMENTOS: solo para escrituras que no confirman
+  // (sin token no hay otra identidad del pedido). Las que confirman —hoy, todas
+  // las publicadas— se identifican por su token. Deduplicar por datos fusionaba
+  // dos altas legítimamente iguales (dos «Cochera», dos homónimos) devolviendo
+  // el registro de la anterior con 200 y sin error: el alta se perdía en
+  // silencio (COONG-300).
+  const key =
+    isWrite && grantedToken === null
+      ? idempotencyKey(connection.connection.id, capability.id, args)
+      : null;
   if (key) {
     const previous = recallExecution(key);
     if (previous) return ok(id, previous.result);
@@ -254,12 +247,7 @@ async function callTool(
   await touchConnection(connection.database, connection.connection.id);
 
   const startedAt = Date.now();
-  const result = await platform.executeAction(
-    connection.tenantId,
-    capability.action,
-    args,
-    connection.connection.kit_id
-  );
+  const result = await runAction(platform, connection, capability, args, grantedToken);
   if (!result.success) {
     recordAudit({
       ...auditBase(connection, capability, 'error', result.error ?? undefined),
@@ -296,8 +284,97 @@ async function callTool(
   };
   // Solo se memoriza lo que salió bien: un fallo debe poder reintentarse.
   if (key) rememberExecution(key, payload);
+  // El token queda respondiendo por este resultado: si el cliente reintenta la
+  // misma llamada, recibe esto en vez de ejecutar el alta por segunda vez.
+  if (grantedToken) completeConfirmation(grantedToken, payload);
 
   return ok(id, payload);
+}
+
+/**
+ * Ejecuta la acción sin dejar la confirmación colgada: si no llegó a
+ * completarse —falló o cortó—, el token vuelve a estar pendiente. Sin esto el
+ * pedido quedaría en `inFlight` hasta expirar y no habría forma de reintentarlo.
+ */
+async function runAction(
+  platform: PlatformAPI,
+  connection: AuthenticatedConnection,
+  capability: TenantCapability,
+  args: Record<string, unknown>,
+  grantedToken: string | null
+): Promise<Awaited<ReturnType<PlatformAPI['executeAction']>>> {
+  try {
+    const result = await platform.executeAction(
+      connection.tenantId,
+      capability.action,
+      args,
+      connection.connection.kit_id
+    );
+    if (!result.success && grantedToken) releaseConfirmation(grantedToken);
+    return result;
+  } catch (error) {
+    if (grantedToken) releaseConfirmation(grantedToken);
+    throw error;
+  }
+}
+
+/**
+ * Compuerta de confirmación: o hay respuesta que devolver ya mismo, o se puede
+ * seguir a la ejecución. `token` es el de esta llamada cuando la operación
+ * confirma, y `null` cuando no lo exige.
+ */
+type ConfirmationGate = { response: JsonRpcResponse } | { token: string | null };
+
+/**
+ * Confirmación server-side: la primera llamada de una operación que la exige no
+ * ejecuta nada — devuelve el resumen y un token. Ejecutar requiere repetir la
+ * llamada con `confirmationToken` y los MISMOS args.
+ */
+function confirmationGate(
+  id: string | number | null,
+  connection: AuthenticatedConnection,
+  capability: TenantCapability,
+  args: Record<string, unknown>,
+  confirmationToken: unknown
+): ConfirmationGate {
+  if (!confirmationRequired(capability, policyFor(connection.connection))) return { token: null };
+
+  const verdict = redeemConfirmation(
+    confirmationToken,
+    connection.connection.id,
+    capability.id,
+    args
+  );
+  // Reintento de transporte del mismo pedido: se devuelve lo ya ejecutado.
+  if (verdict.status === 'replayed') return { response: ok(id, verdict.result) };
+  if (verdict.status === 'inFlight') {
+    return {
+      response: toolError(
+        id,
+        'Esta operación ya está en curso con esta misma confirmación. Esperá el resultado antes de repetirla: reintentarla ahora la duplicaría.'
+      ),
+    };
+  }
+  if (verdict.status === 'granted') return { token: confirmationToken as string };
+
+  const token = issueConfirmation(connection.connection.id, capability.id, args);
+  const summary = confirmationSummary(capability.title, args);
+  recordAudit(auditBase(connection, capability, 'confirmation_required'));
+  return {
+    response: ok(id, {
+      content: [
+        {
+          type: 'text',
+          // El token va en el TEXTO además de en `structuredContent`: no todos
+          // los clientes MCP le muestran el structured al modelo, y sin el valor
+          // a la vista la confirmación es imposible de completar.
+          text: `Confirmación requerida: ${summary}\nSi la persona confirma, repetí exactamente la misma llamada agregando confirmationToken: "${token}".`,
+        },
+      ],
+      structuredContent: { status: 'confirmation_required', summary, confirmationToken: token },
+      isError: false,
+    }),
+  };
 }
 
 function effectiveArgs(
