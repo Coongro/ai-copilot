@@ -239,6 +239,119 @@ describe('confirmación server-side', () => {
     expect((replay.result as ToolResult).structuredContent?.status).toBe('confirmation_required');
   });
 
+  /**
+   * COONG-300. La idempotencia se deduplicaba por el HASH DE LOS ARGUMENTOS, así
+   * que dos altas legítimamente iguales —dos «Cochera», dos homónimos— se
+   * fusionaban: la segunda devolvía el registro de la primera con 200 y sin
+   * error, y el alta desaparecía en silencio. La identidad de un alta es su
+   * confirmación, no sus datos.
+   */
+  it('dos altas idénticas confirmadas por separado se ejecutan las dos', async () => {
+    let created = 0;
+    const execute = vi.fn(() =>
+      Promise.resolve({ success: true, data: { id: `contrato-${++created}` } })
+    );
+    const { platform } = makePlatform({ execute });
+    const args = { unitRef: 'properties.units:01JUNIT', startDate: '2026-08-01' };
+
+    const confirmAndRun = async () => {
+      const first = await call(toolsCall('leases_contracts_create', args), platform);
+      const token = (first.result as ToolResult).structuredContent?.confirmationToken;
+      return call(
+        toolsCall('leases_contracts_create', { ...args, confirmationToken: token }),
+        platform
+      );
+    };
+
+    const one = await confirmAndRun();
+    const two = await confirmAndRun();
+
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect((one.result as ToolResult).content[0].text).not.toEqual(
+      (two.result as ToolResult).content[0].text
+    );
+  });
+
+  it('reintentar con el MISMO token devuelve lo ya ejecutado, sin ejecutar de nuevo', async () => {
+    const { platform, executeAction } = makePlatform();
+    const args = { unitRef: 'properties.units:01JUNIT', startDate: '2026-08-01' };
+    const first = await call(toolsCall('leases_contracts_create', args), platform);
+    const token = (first.result as ToolResult).structuredContent?.confirmationToken;
+
+    const run = await call(
+      toolsCall('leases_contracts_create', { ...args, confirmationToken: token }),
+      platform
+    );
+    const retry = await call(
+      toolsCall('leases_contracts_create', { ...args, confirmationToken: token }),
+      platform
+    );
+
+    expect(executeAction).toHaveBeenCalledTimes(1);
+    expect(retry.result).toEqual(run.result);
+    expect((retry.result as ToolResult).isError).toBe(false);
+  });
+
+  it('una ejecución fallida no consume la confirmación: el mismo token reintenta', async () => {
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce({ success: false, error: 'la base no respondió' })
+      .mockResolvedValueOnce({ success: true, data: { id: 'contrato-1' } });
+    const { platform } = makePlatform({ execute });
+    const args = { unitRef: 'properties.units:01JUNIT', startDate: '2026-08-01' };
+    const first = await call(toolsCall('leases_contracts_create', args), platform);
+    const token = (first.result as ToolResult).structuredContent?.confirmationToken;
+
+    const failed = await call(
+      toolsCall('leases_contracts_create', { ...args, confirmationToken: token }),
+      platform
+    );
+    expect((failed.result as ToolResult).isError).toBe(true);
+
+    const retry = await call(
+      toolsCall('leases_contracts_create', { ...args, confirmationToken: token }),
+      platform
+    );
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect((retry.result as ToolResult).isError).toBe(false);
+  });
+
+  it('dos llamadas simultáneas con el mismo token ejecutan una sola vez', async () => {
+    let release: (value: { success: true; data: unknown }) => void = () => {};
+    let markStarted: () => void = () => {};
+    const started = new Promise<void>((resolve) => (markStarted = resolve));
+    const execute = vi.fn(() => {
+      markStarted();
+      return new Promise<{ success: true; data: unknown }>((resolve) => (release = resolve));
+    });
+    const { platform } = makePlatform({
+      execute: execute as unknown as PlatformAPI['executeAction'],
+    });
+    const args = { unitRef: 'properties.units:01JUNIT', startDate: '2026-08-01' };
+    const first = await call(toolsCall('leases_contracts_create', args), platform);
+    const token = (first.result as ToolResult).structuredContent?.confirmationToken;
+
+    const inFlight = call(
+      toolsCall('leases_contracts_create', { ...args, confirmationToken: token }),
+      platform
+    );
+    // Sin esperar a que la primera esté EJECUTANDO, cuál de las dos redime
+    // primero depende de cómo se intercalen sus awaits y el test se vuelve una
+    // moneda al aire.
+    await started;
+    const concurrent = await call(
+      toolsCall('leases_contracts_create', { ...args, confirmationToken: token }),
+      platform
+    );
+    release({ success: true, data: { id: 'contrato-1' } });
+    await inFlight;
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    const result = concurrent.result as ToolResult;
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/en curso/i);
+  });
+
   it('una referencia cruzada se rechaza antes de pedir confirmación', async () => {
     const { platform, executeAction } = makePlatform();
     const response = await call(
